@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Every external dependency is declared here with an exact version and used from
+# the crates with `workspace = true`, so one place pins the whole app.
+[workspace.dependencies]
+almahrya-core = { path = "crates/core" }
+almahrya-store = { path = "crates/store" }
+almahrya-connectors = { path = "crates/connectors" }
+almahrya-runtimes = { path = "crates/runtimes" }
+almahrya-engine = { path = "crates/engine" }
+almahrya-ui-kit = { path = "crates/ui-kit" }

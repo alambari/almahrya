@@ -1,0 +1,9 @@
+[package]
+name = "almahrya"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+almahrya-engine.workspace = true
+almahrya-ui-kit.workspace = true
