@@ -78,3 +78,69 @@ async fn list_sessions_returns_created_sessions() {
         .unwrap();
     assert_eq!(e.list_sessions().unwrap(), vec![s]);
 }
+
+#[test]
+fn pruning_between_oldest_check_and_batch_read_is_signalled() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let store = Store::open(&dir.join("e.db")).unwrap();
+    for i in 0..5 {
+        store
+            .append_event(&EventDto::ReplayGap {
+                oldest_available: i,
+            })
+            .unwrap();
+    }
+    // The caller saw oldest = 1 (so `after = 0` needs no up-front gap) ...
+    let oldest = store.oldest_seq().unwrap();
+    assert_eq!(oldest, Some(1));
+    // ... then a concurrent publish pruned events 1..=3 before the batch read.
+    store.prune_events(2).unwrap();
+    let out = almahrya_engine::collect_replay(0, oldest, |c| store.events_after(c, 500)).unwrap();
+    assert!(matches!(
+        out[0].event,
+        EventDto::ReplayGap {
+            oldest_available: 4
+        }
+    ));
+    let seqs: Vec<u64> = out.iter().map(|e| e.seq).collect();
+    assert_eq!(seqs, vec![3, 4, 5]);
+}
+
+#[test]
+fn pruning_between_batches_is_signalled() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let store = Store::open(&dir.join("e.db")).unwrap();
+    for i in 0..6 {
+        store
+            .append_event(&EventDto::ReplayGap {
+                oldest_available: i,
+            })
+            .unwrap();
+    }
+    let mut reads = 0;
+    let out = almahrya_engine::collect_replay(0, Some(1), |c| {
+        reads += 1;
+        let batch = store.events_after(c, 2)?;
+        if reads == 1 {
+            // Pruning lands after the first batch was read.
+            store.prune_events(1)?;
+        }
+        Ok(batch)
+    })
+    .unwrap();
+    let kinds: Vec<(u64, bool)> = out
+        .iter()
+        .map(|e| {
+            (
+                e.seq,
+                matches!(
+                    e.event,
+                    EventDto::ReplayGap {
+                        oldest_available: 6
+                    }
+                ),
+            )
+        })
+        .collect();
+    assert_eq!(kinds, vec![(1, false), (2, false), (5, true), (6, false)]);
+}

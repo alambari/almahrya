@@ -106,27 +106,53 @@ impl Engine {
 
 /// Stored events after `after`, preceded by a `ReplayGap` when history was pruned past it.
 fn catch_up(store: &Store, after: u64) -> Result<Vec<EventEnvelope>, StoreError> {
+    let oldest = store.oldest_seq()?;
+    collect_replay(after, oldest, |cursor| {
+        store.events_after(cursor, REPLAY_BATCH)
+    })
+}
+
+/// Replay core, with the store reads injected so tests can interleave pruning.
+///
+/// `oldest` is the oldest retained seq as read by the caller. Seqs are contiguous and
+/// pruning only removes from the front, so a batch starting after `cursor + 1` means
+/// events were pruned since the previous read; that is reported as a `ReplayGap`.
+#[doc(hidden)]
+pub fn collect_replay(
+    after: u64,
+    oldest: Option<u64>,
+    mut read_batch: impl FnMut(u64) -> Result<Vec<EventEnvelope>, StoreError>,
+) -> Result<Vec<EventEnvelope>, StoreError> {
     let mut out = Vec::new();
-    if let Some(oldest) = store.oldest_seq()?
+    if let Some(oldest) = oldest
         && after.saturating_add(1) < oldest
     {
-        out.push(EventEnvelope {
-            seq: oldest - 1,
-            // Rfc3339 formatting only fails for years outside 0..=9999.
-            at: OffsetDateTime::now_utc()
-                .format(&Rfc3339)
-                .unwrap_or_default(),
-            event: EventDto::ReplayGap {
-                oldest_available: oldest,
-            },
-        });
+        out.push(gap(oldest));
     }
     let mut cursor = out.last().map_or(after, |g| g.seq);
     loop {
-        let batch = store.events_after(cursor, REPLAY_BATCH)?;
-        let Some(last) = batch.last() else { break };
-        cursor = last.seq;
+        let batch = read_batch(cursor)?;
+        let Some(first) = batch.first() else { break };
+        if first.seq > cursor.saturating_add(1) {
+            out.push(gap(first.seq));
+        }
+        if let Some(last) = batch.last() {
+            cursor = last.seq;
+        }
         out.extend(batch);
     }
     Ok(out)
+}
+
+fn gap(oldest: u64) -> EventEnvelope {
+    EventEnvelope {
+        seq: oldest - 1,
+        // Rfc3339 formatting only fails for years outside 0..=9999.
+        at: OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .unwrap_or_default(),
+        event: EventDto::ReplayGap {
+            oldest_available: oldest,
+        },
+    }
 }

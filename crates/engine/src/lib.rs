@@ -6,7 +6,7 @@
 
 mod events;
 
-pub use events::{DEFAULT_RETENTION, Engine};
+pub use events::{DEFAULT_RETENTION, Engine, collect_replay};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
