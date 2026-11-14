@@ -1,8 +1,8 @@
 //! Every gallery component can be built from plain data and describes itself.
 
 use almahrya_ui_kit::{
-    Chip, DecisionCard, DecisionOption, Label, LabelStyle, ListCard, ListRow, StatusBar, Theme,
-    Toggle,
+    Chip, DecisionCard, DecisionOption, DevRibbon, Label, LabelStyle, ListCard, ListRow, StatusBar,
+    Theme, Toggle,
 };
 
 fn option(title: &str, consequence: &str, recommended: bool) -> DecisionOption {
@@ -48,6 +48,7 @@ fn gallery_components_render_without_panicking() {
             row("Branch", "feat/proj-123"),
         ])
         .label(),
+        DevRibbon::new("DEV").label(),
     ];
     for label in labels {
         assert!(!label.trim().is_empty(), "a component has an empty label");
@@ -70,6 +71,16 @@ fn labels_carry_the_caller_text() {
     let list = ListCard::new(vec![row("Repository", "example-web")]);
     assert!(list.label().contains("Repository") && list.label().contains("example-web"));
     assert_eq!(Toggle::new(true).labelled("Run tests").label(), "Run tests");
+}
+
+#[test]
+fn dev_ribbon_shows_the_caller_text_in_waiting_orange_on_dark() {
+    let ribbon = DevRibbon::new("DEV");
+    assert_eq!(ribbon.label(), "DEV");
+    assert_eq!(DevRibbon::new("Pengembangan").label(), "Pengembangan");
+    assert_eq!(ribbon.fill(), 0xE8A93C);
+    assert_eq!(ribbon.fill(), Theme::dark().waiting);
+    assert_eq!(ribbon.ink(), Theme::dark().bg);
 }
 
 #[test]

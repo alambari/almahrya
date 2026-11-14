@@ -3,6 +3,7 @@
 
 mod chip;
 mod decision_card;
+mod dev_ribbon;
 mod label;
 mod list_card;
 pub(crate) mod sidebar;
@@ -11,6 +12,7 @@ mod toggle;
 
 pub use chip::Chip;
 pub use decision_card::{DecisionCard, DecisionOption};
+pub use dev_ribbon::DevRibbon;
 pub use label::{Label, LabelStyle};
 pub use list_card::{ListCard, ListRow};
 pub use sidebar::{ConnectionStatus, SessionItem};

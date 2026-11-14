@@ -3,8 +3,8 @@
 
 use crate::components::sidebar::Sidebar;
 use crate::components::{
-    Chip, ConnectionStatus, DecisionCard, Label, LabelStyle, ListCard, SessionItem, StatusBar,
-    Toggle,
+    Chip, ConnectionStatus, DecisionCard, DevRibbon, Label, LabelStyle, ListCard, SessionItem,
+    StatusBar, Toggle,
 };
 use crate::fonts;
 use crate::theme::{self, Theme};
@@ -60,6 +60,7 @@ pub enum GalleryItem {
     Toggles(Vec<Toggle>),
     Chips(Vec<Chip>),
     ListCard(ListCard),
+    DevRibbon(DevRibbon),
     /// The sessions sidebar, drawn `height` px tall.
     Sidebar {
         sessions: Vec<SessionItem>,
@@ -79,6 +80,7 @@ impl GalleryItem {
             GalleryItem::StatusBar(c) => c.label(),
             GalleryItem::DecisionCard(c) => c.label(),
             GalleryItem::ListCard(c) => c.label(),
+            GalleryItem::DevRibbon(c) => c.label(),
             GalleryItem::Toggles(row) => join(row, Toggle::label),
             GalleryItem::Chips(row) => join(row, Chip::label),
             GalleryItem::Sidebar { sessions, .. } => join(sessions, |s| s.title.clone()),
@@ -173,6 +175,7 @@ fn render_item(item: &GalleryItem, t: &Theme) -> AnyElement {
         GalleryItem::StatusBar(c) => c.render(t).into_any_element(),
         GalleryItem::DecisionCard(c) => c.render(t).into_any_element(),
         GalleryItem::ListCard(c) => c.render(t).into_any_element(),
+        GalleryItem::DevRibbon(c) => row().child(c.render()).into_any_element(),
         GalleryItem::Toggles(toggles) => row()
             .gap(px(12.))
             .children(toggles.iter().map(|c| c.render(t)))

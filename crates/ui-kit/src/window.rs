@@ -1,5 +1,6 @@
 //! The application entry point and the sessions window.
 
+use crate::components::DevRibbon;
 use crate::components::sidebar::{ConnectionStatus, SessionItem, Sidebar};
 use crate::fonts;
 use crate::theme::{self, Theme};
@@ -21,6 +22,8 @@ pub struct WindowConfig {
     pub width: f32,
     pub height: f32,
     pub theme: Theme,
+    /// Drawn at the top of the window when set; the app sets it for the development profile.
+    pub ribbon: Option<DevRibbon>,
 }
 
 impl Default for WindowConfig {
@@ -30,6 +33,7 @@ impl Default for WindowConfig {
             width: 1200.,
             height: 780.,
             theme: Theme::DARK,
+            ribbon: None,
         }
     }
 }
@@ -46,6 +50,7 @@ struct SessionsWindow {
     theme: Theme,
     sessions: Vec<SessionItem>,
     status: ConnectionStatus,
+    ribbon: Option<DevRibbon>,
     on_new_session: Rc<dyn Fn()>,
     _updates: Task<()>,
 }
@@ -62,7 +67,19 @@ impl SessionsWindow {
 impl Render for SessionsWindow {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
+        // Top centre, clear of the traffic lights and the sidebar's controls.
+        let ribbon = self.ribbon.as_ref().map(|r| {
+            div()
+                .absolute()
+                .top(px(8.))
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .child(r.render())
+        });
         div()
+            .relative()
             .flex()
             .flex_row()
             .size_full()
@@ -86,6 +103,7 @@ impl Render for SessionsWindow {
                     .text_color(rgb(t.text_muted))
                     .child("Choose a session or start a new chat"),
             )
+            .children(ribbon)
     }
 }
 
@@ -121,6 +139,7 @@ where
             ..Default::default()
         };
         let theme = config.theme;
+        let ribbon = config.ribbon.clone();
         let on_new_session = on_new_session.clone();
         let opened = cx.open_window(options, move |window, cx| {
             let view = cx.new(|cx: &mut Context<SessionsWindow>| {
@@ -140,6 +159,7 @@ where
                     theme,
                     sessions: Vec::new(),
                     status: ConnectionStatus::Connecting,
+                    ribbon,
                     on_new_session,
                     _updates: task,
                 }

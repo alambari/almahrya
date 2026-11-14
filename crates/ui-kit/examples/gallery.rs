@@ -4,9 +4,9 @@
 //! `-- --screenshot <path>` writes it to a PNG and exits. See docs/superpowers/gallery.
 
 use almahrya_ui_kit::{
-    Chip, ConnectionStatus, DecisionCard, DecisionOption, Gallery, GalleryColumn, GalleryItem,
-    GalleryLane, GallerySection, Label, LabelStyle, ListCard, ListRow, SessionItem, StatusBar,
-    Theme, Toggle, run_gallery,
+    Chip, ConnectionStatus, DecisionCard, DecisionOption, DevRibbon, Gallery, GalleryColumn,
+    GalleryItem, GalleryLane, GallerySection, Label, LabelStyle, ListCard, ListRow, SessionItem,
+    StatusBar, Theme, Toggle, run_gallery,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -113,6 +113,10 @@ fn sample() -> Gallery {
                         Chip::new("example-web", true),
                     ]),
                 ],
+            ),
+            section(
+                "Development ribbon",
+                vec![GalleryItem::DevRibbon(DevRibbon::new("DEV"))],
             ),
             section(
                 "Sidebar",

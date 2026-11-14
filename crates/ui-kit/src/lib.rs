@@ -12,8 +12,8 @@ mod theme;
 mod window;
 
 pub use components::{
-    Chip, ConnectionStatus, DecisionCard, DecisionOption, Label, LabelStyle, ListCard, ListRow,
-    SessionItem, StatusBar, StatusKind, Toggle,
+    Chip, ConnectionStatus, DecisionCard, DecisionOption, DevRibbon, Label, LabelStyle, ListCard,
+    ListRow, SessionItem, StatusBar, StatusKind, Toggle,
 };
 pub use gallery::{
     Gallery, GalleryColumn, GalleryError, GalleryItem, GalleryLane, GallerySection, run_gallery,

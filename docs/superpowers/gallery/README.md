@@ -10,7 +10,7 @@ cargo run -p almahrya-ui-kit --example gallery
 ```
 
 The window is 1440 x 900. Close it or press Cmd-Q to quit. The sample text lives in
-`crates/ui-kit/examples/gallery.rs`. The new components (label, status bar, decision card, toggle, chip, list card)
+`crates/ui-kit/examples/gallery.rs`. The new components (label, status bar, decision card, toggle, chip, list card, development ribbon)
 take all their text from the caller, and `crates/ui-kit/tests/gallery.rs` checks that their source holds no
 user-facing string. The sidebar is a known exception: it still has its own English strings, and will be converted
 when its text moves into the localisation work.
