@@ -50,7 +50,7 @@ the first client; a React web app is the second, later. The design document is
 | `local` | none | Paths, token storage (Keychain, or a file for tests) and the daemon's socket location, shared by the daemon and the desktop app. |
 | `daemon` | `api`, `engine`, `local` | The `almahryad` binary: config, logging, launchd integration, single-instance lock. |
 | `client` | `api-types` | Rust client for the API (HTTP + WebSocket), used by the desktop app. |
-| `ui-kit` | GPUI | App components wrapped around GPUI and gpui-component. The only crate that depends on GPUI. Includes a component gallery used to compare before and after an upgrade. |
+| `ui-kit` | GPUI | App components wrapped around GPUI and gpui-component. The only crate that depends on GPUI. Components live in `src/components/`, one file per component, and a component gallery is used to compare before and after an upgrade. |
 | `app` | `client`, `ui-kit`, `local` | The desktop binary. No business logic and no direct GPUI imports: it renders API state with `ui-kit` components and sends commands. Starts `almahryad` when it is not running. |
 
 Rules:

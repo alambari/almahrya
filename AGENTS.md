@@ -30,6 +30,8 @@ Rules for anyone changing Almahrya, people and coding agents alike. Read this, t
 ## Interface rules
 
 - Follow DESIGN.md: tokens, type scale, sentence case, no all-caps labels, aligned label columns.
+- Reusable UI lives in `crates/ui-kit/src/components/`, one file per component (for example `label.rs`), takes plain
+  data from the caller, and has an entry in the component gallery.
 - `waiting` colour only where the user must act; `agent` colour for agent activity.
 - Every button has a designed result state before it is built.
 - User-facing text exists in Indonesian and English.

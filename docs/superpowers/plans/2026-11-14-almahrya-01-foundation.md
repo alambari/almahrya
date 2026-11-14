@@ -337,7 +337,7 @@ Add `"pid": u32` to the health response in Task 6's handler as part of this task
 ### Task 11: ui-kit component gallery for GPUI upgrades
 
 **Files:**
-- Create: `crates/ui-kit/examples/gallery.rs`, `crates/ui-kit/src/{status_bar.rs,decision_card.rs,toggle.rs,list_card.rs,chip.rs}`, `crates/ui-kit/tests/gallery.rs`
+- Create: `crates/ui-kit/examples/gallery.rs`, `crates/ui-kit/src/components/{mod.rs,label.rs,status_bar.rs,decision_card.rs,toggle.rs,list_card.rs,chip.rs}` (the existing sidebar moves to `components/sidebar.rs`), `crates/ui-kit/tests/gallery.rs`
 - Create: `docs/superpowers/gallery/README.md`, `docs/superpowers/gallery/baseline/` (committed PNGs)
 - Modify: `crates/ui-kit/src/lib.rs`
 
@@ -361,7 +361,7 @@ Add `"pid": u32` to the health response in Task 6's handler as part of this task
 **Files:**
 - Modify: `crates/daemon/src/{paths.rs,config.rs,token_store.rs}`, `crates/app/src/daemon_link.rs`
 - Create: `crates/daemon/tests/profile.rs`, `scripts/dev.sh`
-- Modify: `crates/ui-kit/src/lib.rs` (a `DevRibbon` component), `crates/app/src/main.rs`
+- Create: `crates/ui-kit/src/components/dev_ribbon.rs` (the `DevRibbon` component, with a gallery entry); Modify: `crates/ui-kit/src/components/mod.rs`, `crates/app/src/main.rs`
 
 **Interfaces:**
 - Consumes: `Config`, `Paths`, `TokenStore` (Task 7), `ensure_daemon` (Task 9)
