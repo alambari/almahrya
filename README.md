@@ -5,7 +5,10 @@ agent on your own Mac against your own repositories, skills and tools, and answe
 You stay in control through a few clear gates: pushing code, sending messages in your name, and approving what
 teammates ask for.
 
-Status: design approved, implementation not started. Nothing runs yet.
+Status: the foundation is built. The daemon (`almahryad`) serves the `/v1` API on a Unix socket and on localhost
+with token auth, keeps sessions and an event log in SQLite and replays missed events; the desktop app starts or
+finds the daemon and lists chat sessions live; a development profile runs beside production. Nothing of the
+workbench itself exists yet: no agent sessions, Inbox, Lark bot, terminal, read path or Settings.
 
 ## What it does
 
@@ -49,13 +52,21 @@ the full design.
 | `crates/app` | Desktop binary |
 | `sidecars/claude` | Claude Agent SDK sidecar (TypeScript) |
 
-Some crates in this table do not exist yet; the workspace skeleton predates the daemon design.
+`crates/readpath` and `sidecars/claude` do not exist yet; `connectors` and `runtimes` are empty placeholders.
 
-## Requirements (planned)
+## Build and run
 
-- macOS 14 or later
-- Rust (edition 2024), Node.js for the sidecar, Zig for the terminal library
-- A Claude account or API key; Lark and GitLab accounts for the connectors
+Requirements today: macOS 14 or later and Rust (edition 2024). `scripts/dev.sh` also needs
+[watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`). Zig (for the terminal library),
+Node.js (for the sidecar) and Claude, Lark and GitLab accounts are needed only by later plans.
+
+| Command | What it does |
+|---|---|
+| `scripts/check.sh` | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test --workspace` |
+| `scripts/dev.sh` | The development profile with rebuild on save: restarts `almahryad` and the desktop app when their crates change |
+| `cargo run -p almahrya-daemon` | Runs `almahryad` in the foreground (production profile) |
+| `cargo run -p almahrya-daemon -- install-agent` | Writes the launchd agent plist for `almahryad` and prints the command that loads it |
+| `cargo run -p almahrya-app` | The desktop app; when no daemon answers it starts the `almahryad` next to its own executable, so run `cargo build -p almahrya-daemon` first |
 
 ## Your workflow stays yours
 
