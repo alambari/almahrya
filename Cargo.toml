@@ -25,3 +25,8 @@ almahrya-ui-kit = { path = "crates/ui-kit" }
 almahrya-api-types = { path = "crates/api-types" }
 almahrya-api = { path = "crates/api" }
 almahrya-client = { path = "crates/client" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+time = { version = "=0.3.55", features = ["serde", "formatting"] }
+ts-rs = "=12.0.1"
+uuid = { version = "=1.29.2", features = ["v4", "serde"] }

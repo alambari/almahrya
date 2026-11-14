@@ -3,3 +3,7 @@
 //!
 //! Pure logic only: no IO, no async runtime, no GPUI. Everything here is testable
 //! without a network, a database or a window.
+
+mod session;
+
+pub use session::{Session, SessionId, SessionKind};
