@@ -7,8 +7,6 @@ pub enum DaemonError {
     AlreadyRunning,
     #[error("{0}\n\nusage: almahryad [install-agent [--plist-dir <dir>]]")]
     Usage(String),
-    #[error("HOME is not set; set ALMAHRYA_CONFIG and ALMAHRYA_DATA_DIR or HOME")]
-    NoHome,
     #[error("invalid config file {path}: {source}")]
     Config {
         path: PathBuf,
@@ -29,15 +27,8 @@ pub enum DaemonError {
         len: usize,
         limit: usize,
     },
-    #[error("token store does not hold a valid token: {0}")]
-    InvalidStoredToken(String),
-    #[error("could not generate a token: {0}")]
-    Random(String),
-    #[error("keychain error: {0}")]
-    Keychain(String),
-    #[cfg(not(target_os = "macos"))]
-    #[error("no token store on this platform; set ALMAHRYA_TOKEN_FILE")]
-    NoTokenStore,
+    #[error(transparent)]
+    Local(#[from] almahrya_local::LocalError),
     #[error(transparent)]
     Store(#[from] almahrya_store::StoreError),
     #[error("server task failed: {0}")]

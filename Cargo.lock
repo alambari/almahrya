@@ -86,11 +86,10 @@ version = "0.1.0"
 dependencies = [
  "almahrya-api",
  "almahrya-engine",
+ "almahrya-local",
  "almahrya-store",
  "axum",
  "fd-lock",
- "getrandom 0.3.4",
- "security-framework",
  "serde",
  "tempfile",
  "thiserror",
@@ -114,6 +113,16 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+]
+
+[[package]]
+name = "almahrya-local"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "security-framework",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

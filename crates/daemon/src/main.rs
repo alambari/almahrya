@@ -5,14 +5,13 @@ mod config;
 mod error;
 mod launchd;
 mod lock;
-mod paths;
 mod serve;
-mod token_store;
 
 use crate::config::Config;
 use crate::error::DaemonError;
 use crate::lock::InstanceLock;
 use almahrya_engine::Engine;
+use almahrya_local::{LocalError, paths, token_store};
 use almahrya_store::Store;
 use std::ffi::OsString;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -56,14 +55,16 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, DaemonErro
 fn serve() -> Result<(), DaemonError> {
     let config = Config::load()?;
     let socket = paths::socket(&config.data_dir);
-    paths::check_socket_path(&socket)?;
+    serve::check_socket_path(&socket)?;
     paths::ensure_dir(&config.data_dir)?;
 
     let _lock = InstanceLock::acquire(&paths::lock(&config.data_dir))?;
     // Only now is a leftover socket known to be stale.
     paths::remove_stale_socket(&socket)?;
 
-    let token = token_store::select()?.get_or_create()?;
+    let stored = token_store::select()?.get_or_create()?;
+    let token = almahrya_api::Token::new(stored.expose())
+        .map_err(|e| LocalError::InvalidStoredToken(e.to_string()))?;
     let store = Store::open(&paths::database(&config.data_dir))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()

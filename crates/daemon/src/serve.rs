@@ -4,7 +4,8 @@ use crate::error::DaemonError;
 use almahrya_api::serve::{serve_tcp, serve_unix};
 use axum::Router;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
@@ -12,6 +13,20 @@ use tokio::task::JoinHandle;
 
 /// How long in-flight requests get to finish after a stop signal.
 const GRACE: Duration = Duration::from_millis(1500);
+
+/// Fails early, with a readable message, when the socket path exceeds `sun_path`.
+pub fn check_socket_path(path: &Path) -> Result<(), DaemonError> {
+    let len = path.as_os_str().as_bytes().len();
+    let limit = almahrya_api::serve::MAX_SOCKET_PATH_BYTES;
+    if len > limit {
+        return Err(DaemonError::SocketPathTooLong {
+            path: path.to_owned(),
+            len,
+            limit,
+        });
+    }
+    Ok(())
+}
 
 type Server = JoinHandle<std::io::Result<()>>;
 
@@ -80,6 +95,20 @@ pub async fn run(router: Router, socket: PathBuf, addr: SocketAddr) -> Result<()
             Ok(())
         }
     };
-    crate::paths::remove_stale_socket(&socket)?;
+    almahrya_local::paths::remove_stale_socket(&socket)?;
     first.and(rest)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn long_socket_path_is_a_clear_error() {
+        let path = PathBuf::from("/tmp").join("x".repeat(110));
+        let err = check_socket_path(&path).unwrap_err();
+        assert!(err.to_string().contains("too long"), "{err}");
+        assert!(check_socket_path(Path::new("/tmp/a.sock")).is_ok());
+    }
 }

@@ -28,7 +28,7 @@ struct ApiSection {
 impl Config {
     /// Reads the config file and data dir from their default locations or env overrides.
     pub fn load() -> Result<Config, DaemonError> {
-        let path = crate::paths::config_file()?;
+        let path = almahrya_local::paths::config_file()?;
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => Some(text),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -39,7 +39,7 @@ impl Config {
                 ));
             }
         };
-        Config::from_parts(&path, text.as_deref(), crate::paths::data_dir()?)
+        Config::from_parts(&path, text.as_deref(), almahrya_local::paths::data_dir()?)
     }
 
     fn from_parts(

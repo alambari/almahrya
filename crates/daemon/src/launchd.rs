@@ -2,7 +2,7 @@
 //! command that loads it. It never runs `launchctl` itself.
 
 use crate::error::DaemonError;
-use crate::paths;
+use almahrya_local::paths;
 use std::path::{Path, PathBuf};
 
 pub const LABEL: &str = "dev.almahrya.daemon";

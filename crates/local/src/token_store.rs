@@ -1,8 +1,7 @@
 //! Where the API token lives: the macOS Keychain in normal use, a 0600 file when
 //! `ALMAHRYA_TOKEN_FILE` is set (tests, development). The token is never printed.
 
-use crate::error::DaemonError;
-use almahrya_api::Token;
+use crate::LocalError;
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
@@ -25,9 +24,9 @@ impl std::fmt::Debug for Secret {
 }
 
 /// 32 bytes from the OS RNG as 64 lowercase hex characters (URL-safe).
-pub fn generate() -> Result<Secret, DaemonError> {
+pub fn generate() -> Result<Secret, LocalError> {
     let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).map_err(|e| DaemonError::Random(e.to_string()))?;
+    getrandom::fill(&mut bytes).map_err(|e| LocalError::Random(e.to_string()))?;
     let mut hex = String::with_capacity(64);
     for b in bytes {
         hex.push(char::from(HEX[usize::from(b >> 4)]));
@@ -38,17 +37,39 @@ pub fn generate() -> Result<Secret, DaemonError> {
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
-fn to_token(value: &str) -> Result<Token, DaemonError> {
-    Token::new(value).map_err(|e| DaemonError::InvalidStoredToken(e.to_string()))
+/// The stored API token: trimmed and never empty. Debug output is masked.
+#[derive(Clone)]
+pub struct ApiToken(String);
+
+impl ApiToken {
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for ApiToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ApiToken(***)")
+    }
+}
+
+fn to_token(value: &str) -> Result<ApiToken, LocalError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(LocalError::InvalidStoredToken(
+            "token must not be empty".to_owned(),
+        ));
+    }
+    Ok(ApiToken(trimmed.to_owned()))
 }
 
 pub trait TokenStore {
     /// Returns the stored token, generating and storing one on first use.
-    fn get_or_create(&self) -> Result<Token, DaemonError>;
+    fn get_or_create(&self) -> Result<ApiToken, LocalError>;
 }
 
 /// The file store when `ALMAHRYA_TOKEN_FILE` is set, else the Keychain.
-pub fn select() -> Result<Box<dyn TokenStore>, DaemonError> {
+pub fn select() -> Result<Box<dyn TokenStore>, LocalError> {
     if let Some(path) = std::env::var_os(TOKEN_FILE_ENV).filter(|v| !v.is_empty()) {
         return Ok(Box::new(FileTokenStore {
             path: PathBuf::from(path),
@@ -58,13 +79,13 @@ pub fn select() -> Result<Box<dyn TokenStore>, DaemonError> {
 }
 
 #[cfg(target_os = "macos")]
-fn keychain() -> Result<Box<dyn TokenStore>, DaemonError> {
+fn keychain() -> Result<Box<dyn TokenStore>, LocalError> {
     Ok(Box::new(KeychainTokenStore))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn keychain() -> Result<Box<dyn TokenStore>, DaemonError> {
-    Err(DaemonError::NoTokenStore)
+fn keychain() -> Result<Box<dyn TokenStore>, LocalError> {
+    Err(LocalError::NoTokenStore)
 }
 
 /// Token in a file created with mode 0600. For tests and development only.
@@ -73,7 +94,7 @@ pub struct FileTokenStore {
 }
 
 impl TokenStore for FileTokenStore {
-    fn get_or_create(&self) -> Result<Token, DaemonError> {
+    fn get_or_create(&self) -> Result<ApiToken, LocalError> {
         let created = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -85,17 +106,17 @@ impl TokenStore for FileTokenStore {
                 file.write_all(secret.expose().as_bytes())
                     .and_then(|()| file.write_all(b"\n"))
                     .map_err(|e| {
-                        DaemonError::io(format!("could not write {}", self.path.display()), e)
+                        LocalError::io(format!("could not write {}", self.path.display()), e)
                     })?;
                 to_token(secret.expose())
             }
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {
                 let text = std::fs::read_to_string(&self.path).map_err(|e| {
-                    DaemonError::io(format!("could not read {}", self.path.display()), e)
+                    LocalError::io(format!("could not read {}", self.path.display()), e)
                 })?;
                 to_token(&text)
             }
-            Err(e) => Err(DaemonError::io(
+            Err(e) => Err(LocalError::io(
                 format!("could not create {}", self.path.display()),
                 e,
             )),
@@ -115,7 +136,7 @@ impl KeychainTokenStore {
 
 #[cfg(target_os = "macos")]
 impl TokenStore for KeychainTokenStore {
-    fn get_or_create(&self) -> Result<Token, DaemonError> {
+    fn get_or_create(&self) -> Result<ApiToken, LocalError> {
         use security_framework::passwords::{get_generic_password, set_generic_password};
         /// `errSecItemNotFound`.
         const NOT_FOUND: i32 = -25300;
@@ -123,16 +144,16 @@ impl TokenStore for KeychainTokenStore {
         match get_generic_password(Self::SERVICE, Self::ACCOUNT) {
             Ok(bytes) => {
                 let text = String::from_utf8(bytes)
-                    .map_err(|_| DaemonError::InvalidStoredToken("not UTF-8".to_owned()))?;
+                    .map_err(|_| LocalError::InvalidStoredToken("not UTF-8".to_owned()))?;
                 to_token(&text)
             }
             Err(e) if e.code() == NOT_FOUND => {
                 let secret = generate()?;
                 set_generic_password(Self::SERVICE, Self::ACCOUNT, secret.expose().as_bytes())
-                    .map_err(|e| DaemonError::Keychain(e.to_string()))?;
+                    .map_err(|e| LocalError::Keychain(e.to_string()))?;
                 to_token(secret.expose())
             }
-            Err(e) => Err(DaemonError::Keychain(e.to_string())),
+            Err(e) => Err(LocalError::Keychain(e.to_string())),
         }
     }
 }
@@ -178,10 +199,10 @@ mod tests {
         let first = store.get_or_create().unwrap();
         assert_eq!(mode_of(&path), "600");
         let stored = std::fs::read_to_string(&path).unwrap();
-        assert!(first.matches(stored.trim()));
+        assert_eq!(first.expose(), stored.trim());
         let second = store.get_or_create().unwrap();
-        assert!(second.matches(stored.trim()));
-        assert_eq!(format!("{first:?}"), "Token(***)");
+        assert_eq!(second.expose(), stored.trim());
+        assert_eq!(format!("{first:?}"), "ApiToken(***)");
     }
 
     #[test]
@@ -192,7 +213,7 @@ mod tests {
         let store = FileTokenStore { path };
         assert!(matches!(
             store.get_or_create(),
-            Err(DaemonError::InvalidStoredToken(_))
+            Err(LocalError::InvalidStoredToken(_))
         ));
     }
 }
