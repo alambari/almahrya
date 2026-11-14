@@ -2,10 +2,12 @@
 
 mod error;
 mod event;
+mod health;
 mod session;
 
 pub use error::ApiError;
 pub use event::{EventDto, EventEnvelope};
+pub use health::HealthDto;
 pub use session::{CreateSessionRequest, SessionDto, SessionKindDto};
 
 /// Writes the TypeScript bindings of every exported type into `dir`.
@@ -18,5 +20,6 @@ pub fn export_all_to(dir: &std::path::Path) -> Result<(), ts_rs::ExportError> {
     EventEnvelope::export_all(&cfg)?;
     EventDto::export_all(&cfg)?;
     ApiError::export_all(&cfg)?;
+    HealthDto::export_all(&cfg)?;
     Ok(())
 }

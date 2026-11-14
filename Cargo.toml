@@ -33,7 +33,12 @@ uuid = { version = "=1.29.2", features = ["v4", "serde"] }
 rusqlite = { version = "=0.42.0", features = ["bundled"] }
 thiserror = "=2.0.21"
 tempfile = "=3.27.0"
-tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 async-stream = "=0.3.6"
 futures-core = "=0.3.34"
 futures-util = "=0.3.34"
+axum = { version = "=0.8.9", features = ["ws"] }
+tower = { version = "=0.5.3", features = ["util"] }
+http-body-util = "=0.1.5"
+subtle = "=2.6.1"
+tokio-tungstenite = "=0.30.0"
