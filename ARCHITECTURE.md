@@ -41,17 +41,17 @@ the first client; a React web app is the second, later. The design document is
 |---|---|---|
 | `core` | none | Domain model and pure decisions: permission classification, gate rules, ticket and run state machines, Lark access rule. No IO, no async runtime. Fully unit-tested. |
 | `api-types` | `core` | Every request, response and event type of the API, with serde. TypeScript types are generated from this crate. |
-| `store` | `core` | SQLite access and migrations. |
-| `connectors` | `core` | Lark (long connection, messages, Base, contacts) and GitLab (merge requests, discussions) clients. |
-| `runtimes` | `core` | Agent runtime trait; Claude implementation that starts and talks to the sidecar. Codex and ACP later. |
-| `readpath` | `core` | Read-only query service for Postgres, ClickHouse, Elasticsearch, Redis. Reads credentials from the configured `.env`. Exposed to the agent as an MCP server. |
-| `engine` | all of the above | The running system: sessions, runs, gates, inbox, bot, git, files, PTYs, temporary grants, audit. Own tokio runtime. |
-| `api` | `engine`, `api-types` | HTTP and WebSocket server. Thin: validates, calls the engine, streams events. |
-| `local` | none | Paths, token storage (Keychain, or a file for tests) and the daemon's socket location, shared by the daemon and the desktop app. |
-| `daemon` | `api`, `engine`, `local` | The `almahryad` binary: config, logging, launchd integration, single-instance lock. |
+| `store` | `core`, `api-types` | SQLite access and migrations. The event log stores the API's event type. |
+| `connectors` | `core` | Placeholder today. Lark (long connection, messages, Base, contacts) and GitLab (merge requests, discussions) clients. |
+| `runtimes` | `core` | Placeholder today. Agent runtime trait; Claude implementation that starts and talks to the sidecar. Codex and ACP later. |
+| `readpath` | `core` | Not created yet. Read-only query service for Postgres, ClickHouse, Elasticsearch, Redis. Reads credentials from the configured `.env`. Exposed to the agent as an MCP server. |
+| `engine` | `core`, `store`, `api-types` (also lists `connectors` and `runtimes`, both placeholders) | The running system: sessions, runs, gates, inbox, bot, git, files, PTYs, temporary grants, audit. Today: sessions and the event log with replay. |
+| `api` | `engine`, `api-types`, `core` | HTTP and WebSocket server. Thin: validates, calls the engine, streams events. |
+| `local` | none | Paths, token storage (Keychain, or a file for tests and `scripts/dev.sh`) and the daemon's socket location, shared by the daemon and the desktop app. |
+| `daemon` | `api`, `engine`, `store`, `local` | The `almahryad` binary: config, logging, launchd integration, single-instance lock. |
 | `client` | `api-types` | Rust client for the API (HTTP + WebSocket), used by the desktop app. |
 | `ui-kit` | GPUI | App components wrapped around GPUI and gpui-component. The only crate that depends on GPUI. Components live in `src/components/`, one file per component, and a component gallery is used to compare before and after an upgrade. |
-| `app` | `client`, `ui-kit`, `local` | The desktop binary. No business logic and no direct GPUI imports: it renders API state with `ui-kit` components and sends commands. Starts `almahryad` when it is not running. |
+| `app` | `client`, `api-types`, `local`, `ui-kit` | The desktop binary. No business logic and no direct GPUI imports: it renders API state with `ui-kit` components and sends commands. Starts `almahryad` when it is not running. |
 
 Rules:
 - `core` and `api-types` never depend on GPUI, tokio-specific IO, or network crates.
@@ -66,8 +66,10 @@ Rules:
   - a Unix socket in the data directory, used by the desktop;
   - `127.0.0.1` on a configured port, used by the web app during development;
   - nothing on other interfaces. Remote access is out of scope for now.
-- Auth: a random token created at first start and stored in the Keychain. Every request carries it. The web app
-  gets it through a local login page served by the daemon.
+- Auth: a random token that the daemon creates at its first start and stores in the Keychain (or in the file named
+  by `ALMAHRYA_TOKEN_FILE`, used by tests and `scripts/dev.sh`). The desktop app only reads it. Every request
+  carries it, except `GET /v1/health`, which needs no token. The web app will get it through a local login page
+  served by the daemon.
 - Versioning: everything under `/v1`. Breaking changes go to `/v2`; the daemon serves both for one release.
 - Style:
   - resources are nouns (`/v1/sessions`, `/v1/sessions/{id}/runs`, `/v1/inbox`, `/v1/gates/{id}`);
@@ -214,7 +216,7 @@ anything else is production.
 | Config | `~/.config/almahrya/config.toml` with an optional `[dev]` table overriding keys | same file, base keys |
 | Unix socket | `<data dir>/almahryad.sock` (inside the dev data dir) | inside the production data dir |
 | TCP port | `api_port + 1` unless `[dev] api_port` is set | `api_port` |
-| Keychain | service `almahrya-dev` | service `almahrya` |
+| API token | a file in the dev data dir (`api-token`) under `scripts/dev.sh`; otherwise Keychain service `almahrya-dev` | Keychain service `almahrya` |
 | launchd label | none by default (started by `scripts/dev.sh`) | `dev.almahrya.daemon` |
 | Window and menu bar | orange "DEV" ribbon | no ribbon |
 
@@ -226,8 +228,10 @@ anything else is production.
 
 - Hot reload: GPUI is compiled Rust, so "hot reload" means rebuild and restart on save. `scripts/dev.sh` runs
   `watchexec` over `crates/` and `sidecars/`: a change in the backend crates restarts `almahryad`, a change in
-  `ui-kit` or `app` rebuilds and restarts the desktop app. State lives in the daemon (SQLite), so the app reopens on
-  the same screen, and the event stream resumes from the last sequence number. Incremental rebuilds take about 3 s.
+  `ui-kit` or `app` rebuilds and restarts the desktop app. State lives in the daemon (SQLite): a restarted app
+  loads the session list again, and while one app process runs, a restarted daemon is reconnected to, the list is
+  reloaded and the event stream resumes from the last sequence number that process saw. Incremental rebuilds took
+  about 3 s in the GPUI spike (`docs/superpowers/spikes/gpui.md`).
 - Web: the React app uses Vite's hot module reload against the dev daemon.
 - Lark and GitLab are allowed in dev with the owner's real accounts. Only one daemon holds the Lark long connection at
   a time: if production holds it, dev skips connecting and Settings says so. When dev holds it, bot replies start with

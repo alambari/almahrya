@@ -17,8 +17,10 @@ Rules for anyone changing Almahrya, people and coding agents alike. Read this, t
 ## Architecture rules
 
 - One backend (`almahryad`) owns all state and all side effects. Clients (desktop, web) only call the API.
-- `core` and `api-types` are pure: no GPUI, no network, no filesystem, no async runtime specifics.
-- Only `engine` touches git, files, SQLite, the sidecar, PTYs and the network. `api` stays thin.
+- `core` and `api-types` are pure: no GPUI, no network, no async runtime specifics, and no filesystem access except
+  the `api-types` helper that writes the generated TypeScript bindings (`export_all_to`), used by its tests.
+- Only `engine` touches git, files, the sidecar, PTYs and the network. `engine` owns SQLite through `store`; the daemon
+  opens the `Store` at startup and hands it to the engine. `api` stays thin.
 - Only `ui-kit` may depend on or `use` GPUI and gpui-component. `app` uses `ui-kit` components and nothing else from
   GPUI, so one crate absorbs every GPUI upgrade. GPUI comes from crates.io as `gpui-pre` and is pinned to an exact
   version; see "Upgrading GPUI" in ARCHITECTURE.md before changing it.
@@ -34,7 +36,8 @@ Rules for anyone changing Almahrya, people and coding agents alike. Read this, t
   data from the caller, and has an entry in the component gallery.
 - `waiting` colour only where the user must act; `agent` colour for agent activity.
 - Every button has a designed result state before it is built.
-- User-facing text exists in Indonesian and English.
+- User-facing text will be required in Indonesian and English. Until the Settings plan adds the language choice,
+  the app ships English only.
 
 ## Code
 
