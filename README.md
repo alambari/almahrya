@@ -36,6 +36,7 @@ the full design.
 |---|---|
 | `crates/core` | Domain model and pure decisions; no IO |
 | `crates/api-types` | API request, response and event types (TypeScript generated from here) |
+| `crates/local` | Paths and token storage shared by the daemon and the desktop app |
 | `crates/store` | SQLite |
 | `crates/connectors` | Lark and GitLab |
 | `crates/runtimes` | Agent runtimes behind one trait (Claude first) |
