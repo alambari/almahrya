@@ -5,9 +5,11 @@ gets its own plan, written when the previous stage is done, so later plans use w
 
 | # | Plan | Delivers | Status |
 |---|---|---|---|
-| 1 | [Foundation](2026-11-14-almahrya-01-foundation.md) | GPUI and libghostty-vt spikes; `almahryad` with `/v1` HTTP + WebSocket, token, event replay; `api-types` with TypeScript generation; `client`; a desktop window listing sessions live | Ready |
-| 2 | Ticket session | Claude sidecar, permission flow in `core`, run state file schema and reader, status bar, decision cards, subagent cards, ticket notes, push gate | After 1 |
-| 3 | Inbox: GitLab | Merge requests and review comments by polling, reply drafts sent through a gate | After 2 |
+| 1 | [Foundation](2026-11-14-almahrya-01-foundation.md) | GPUI and libghostty-vt spikes; `almahryad` with `/v1` HTTP + WebSocket, token, event replay; `api-types` with TypeScript generation; `client`; a desktop window listing sessions live | Done, merged to main |
+| 2a | [Agent runtime and permissions](2026-11-15-almahrya-02a-agent-runtime.md) | Domain events, store epoch, WebSocket close, permission rules and shell analysis in `core`, sidecar protocol, the Claude sidecar, supervised sidecar process, runs and decisions in the engine, run and decision endpoints, client harness. No new screens | Ready |
+| 2b | Agent configuration | Skills allowlist with a generated skills folder, connectors on and off, subagent definitions, temporary grants and write journal, per-ticket notes | After 2a |
+| 2c | Ticket session screens | Run state file reader, status bar, decision cards, subagent cards, stage list, automatic decisions and test-result drawers, push gate, in the desktop app | After 2b |
+| 3 | Inbox: GitLab | Merge requests and review comments by polling, reply drafts sent through a gate | After 2c |
 | 4 | Inbox: Lark | Mentions, DMs, Base comments with user authorization; send to agent; mark done | After 3 |
 | 5 | Lark bot | Long connection, access rule, acknowledgement, question vs action, teammate approvals, thread = session | After 4 |
 | 6 | Terminal | PTYs in the daemon, `terminal.output` events, libghostty-vt rendering in the desktop | After 5 |
