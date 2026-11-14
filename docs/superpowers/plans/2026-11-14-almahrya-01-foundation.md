@@ -6,7 +6,7 @@
 
 **Architecture:** One Rust daemon owns state (SQLite) and pushes typed events over a WebSocket with sequence numbers and replay. API types live in `api-types` and generate TypeScript. The desktop app talks to the daemon only through the `client` crate over a Unix socket.
 
-**Tech Stack:** Rust 2024, tokio, axum (HTTP + WebSocket), rusqlite, serde, ts-rs, security-framework (Keychain), fd-lock, GPUI (git, pinned rev) with gpui-component, libghostty-vt, portable-pty.
+**Tech Stack:** Rust 2024, tokio, axum (HTTP + WebSocket), rusqlite, serde, ts-rs, security-framework (Keychain), fd-lock, GPUI (crates.io `gpui-pre`, exact version) with gpui-component, libghostty-vt, portable-pty.
 
 **Spec:** `docs/superpowers/specs/2026-11-14-almahrya-design.md` and `ARCHITECTURE.md`.
 
@@ -14,9 +14,9 @@
 
 - Public repository: no secrets, no work data, no company/team/people/Lark/GitLab identifiers, no ticket codes, no workflow or skill names. Fixtures use neutral names (`PROJ-123`).
 - Rust edition 2024. `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --workspace` pass after every task.
-- Every external dependency is declared once in the root `Cargo.toml` `[workspace.dependencies]` with an exact version (`=x.y.z`), added with `cargo add` and then pinned to the resolved version. GPUI is a git dependency pinned to a `rev`.
+- Every external dependency is declared once in the root `Cargo.toml` `[workspace.dependencies]` with an exact version (`=x.y.z`), added with `cargo add` and then pinned to the resolved version. GPUI is pinned as exact crate versions (`gpui-pre`, `gpui-pre-platform`, `gpui-component`), never as a git dependency.
 - `core` and `api-types` never depend on GPUI, tokio IO, axum, rusqlite or network crates.
-- Only `engine` performs side effects; `api` stays thin; GPUI lives only in `ui-kit` and `app`.
+- Only `engine` performs side effects; `api` stays thin; only `ui-kit` depends on GPUI (`app` uses `ui-kit` components only).
 - Paths: config `~/.config/almahrya/config.toml`; data `~/Library/Application Support/Almahrya/`; secrets in the macOS Keychain. Tests override both with the env vars `ALMAHRYA_CONFIG` and `ALMAHRYA_DATA_DIR`.
 - API: everything under `/v1`; one JSON error shape `{ "code": string, "message": string }`; Bearer token on every route except `GET /v1/health`.
 - No `unwrap()` outside tests. Typed errors per crate (`thiserror`).
@@ -59,11 +59,11 @@
 - Create: `docs/superpowers/spikes/gpui.md`
 
 **Interfaces:**
-- Produces: a pinned GPUI `rev` and gpui-component version known to build on this Mac, recorded in `docs/superpowers/spikes/gpui.md`, to be copied into the root `Cargo.toml` in Task 9.
+- Produces: the exact versions of `gpui-pre`, `gpui-pre-platform` and gpui-component known to build on this Mac, recorded in `docs/superpowers/spikes/gpui.md`, to be copied into the root `Cargo.toml` in Task 9.
 
 - [ ] **Step 1: Build a window 1440×900 with a 244 px sidebar (`#1F1F22`) and main area (`#18181A`), one text in Plus Jakarta Sans 13 px `#ECEAE4`, one in JetBrains Mono 13 px, one gpui-component button.**
 - [ ] **Step 2: Run `cargo run` in `spikes/gpui-window`.** Expected: window opens; both fonts render (fallback font visible means fonts not found; note it).
-- [ ] **Step 3: Write `docs/superpowers/spikes/gpui.md`: rev, versions, build time, binary size, idle memory (Activity Monitor), font loading notes, anything that broke.**
+- [ ] **Step 3: Write `docs/superpowers/spikes/gpui.md`: exact versions, build time, binary size, idle memory (Activity Monitor), font loading notes, anything that broke.**
 - [ ] **Step 4: Commit** `spike: GPUI window with design tokens`
 
 ### Task 3: Spike: libghostty-vt cells drawn in GPUI (throwaway)
@@ -292,7 +292,7 @@ async fn create_and_list_over_unix_socket() { /* round trip */ }
 ### Task 9: Desktop window: start daemon, list sessions live
 
 **Files:**
-- Modify: `Cargo.toml` (GPUI rev and gpui-component version from Task 2's notes)
+- Modify: `Cargo.toml` (the three pinned GPUI dependency lines from `docs/superpowers/spikes/gpui.md`; also move the explanatory comment about exact versions back directly above `[workspace.dependencies]`)
 - Modify: `crates/ui-kit/src/lib.rs`; Create: `crates/ui-kit/src/{theme.rs,sidebar.rs}`
 - Modify: `crates/app/src/main.rs`; Create: `crates/app/src/{daemon_link.rs,sessions_view.rs}`, `crates/app/tests/daemon_link.rs`
 
@@ -315,7 +315,7 @@ async fn ensure_daemon_starts_one_when_none_runs_and_reuses_it() {
 Add `"pid": u32` to the health response in Task 6's handler as part of this task (and to api-types).
 
 - [ ] **Step 2: Run `cargo test -p almahrya-app`.** Expected: FAIL.
-- [ ] **Step 3: Implement `ensure_daemon`; build the window with ui-kit components; subscribe with `Client::events(0)` and apply `SessionCreated` to the list; on `ReplayGap`, reload with `list_sessions`.**
+- [ ] **Step 3: Implement `ensure_daemon`; build the window with ui-kit components only (`crates/app` must not list or import GPUI; `ui-kit` exports the window and view helpers it needs); subscribe with `Client::events(0)` and apply `SessionCreated` to the list; on `ReplayGap`, reload with `list_sessions`.**
 - [ ] **Step 4: Run tests, then `cargo run -p almahrya-app`: click "New chat session" twice; kill `almahryad`; confirm the app restarts it and the list still shows both sessions.**
 - [ ] **Step 5: Commit** `feat(app): desktop window with live session list`
 
@@ -326,9 +326,32 @@ Add `"pid": u32` to the health response in Task 6's handler as part of this task
 - Create: `scripts/scrub.sh`
 
 **Interfaces:**
-- Produces: CI on macOS running `scripts/check.sh` and `scripts/scrub.sh` on every push and pull request.
+- Produces: CI on macOS running `scripts/check.sh`, `scripts/scrub.sh` and `scripts/gpui-boundary.sh` on every push and pull request.
+- `scripts/gpui-boundary.sh` fails when any `Cargo.toml` outside `crates/ui-kit/` (and outside `spikes/`) mentions `gpui`, and when any `.rs` file outside `crates/ui-kit/` (and outside `spikes/`) contains `use gpui`.
 
 - [ ] **Step 1: Write `scripts/scrub.sh`: fails if tracked files match patterns listed in a local, untracked `~/.config/almahrya/scrub-patterns` (one regex per line) plus built-in generic patterns (`-----BEGIN .* PRIVATE KEY-----`, `ghp_[A-Za-z0-9]{20,}`, `xox[bp]-`, `postgres://[^ ]+:[^ ]+@`). In CI only the built-in patterns run.**
 - [ ] **Step 2: Run `scripts/scrub.sh` locally.** Expected: exits 0 on the current tree; exits 1 when a test file containing `ghp_aaaaaaaaaaaaaaaaaaaaaa` is added (remove it after).
 - [ ] **Step 3: Add the workflow (macos-latest, stable Rust, cache cargo).**
 - [ ] **Step 4: Commit** `ci: checks and secret scrub for the public repository`
+
+### Task 11: ui-kit component gallery for GPUI upgrades
+
+**Files:**
+- Create: `crates/ui-kit/examples/gallery.rs`, `crates/ui-kit/src/{status_bar.rs,decision_card.rs,toggle.rs,list_card.rs,chip.rs}`, `crates/ui-kit/tests/gallery.rs`
+- Create: `docs/superpowers/gallery/README.md`, `docs/superpowers/gallery/baseline/` (committed PNGs)
+- Modify: `crates/ui-kit/src/lib.rs`
+
+**Interfaces:**
+- Consumes: `ui_kit::Theme` (Task 9)
+- Produces: components styled from DESIGN.md tokens, each with a static constructor taking plain data (no daemon types):
+  - `StatusBar::waiting(text: &str, action: &str)` / `StatusBar::agent(text: &str, action: &str)`
+  - `DecisionCard::new(question: &str, options: Vec<DecisionOption>)` with `DecisionOption { title: String, consequence: String, recommended: bool }`
+  - `Toggle::new(on: bool)`, `Chip::new(text: &str, mono: bool)`, `ListCard::new(rows: Vec<ListRow>)` with `ListRow { label: String, value: String }`
+  - `cargo run -p almahrya-ui-kit --example gallery` opens one window showing every component in dark and light on one screen; with `--screenshot <path>` it saves a PNG and exits.
+
+- [ ] **Step 1: Write failing test** `gallery_components_render_without_panicking` in `crates/ui-kit/tests/gallery.rs`: constructs each component with sample data and asserts each has a non-empty accessible label (`fn label(&self) -> String`).
+- [ ] **Step 2: Run `cargo test -p almahrya-ui-kit`.** Expected: FAIL, components not defined.
+- [ ] **Step 3: Implement the five components against DESIGN.md (token values, 6/8/10/12 radii, 38 × 22 toggle, 3 px `waiting` left edge on waiting items) and the gallery example.**
+- [ ] **Step 4: Run the tests, then `cargo run -p almahrya-ui-kit --example gallery -- --screenshot docs/superpowers/gallery/baseline/gallery-dark.png`. Expected: PNG written; open it and compare with DESIGN.md.**
+- [ ] **Step 5: Document in `docs/superpowers/gallery/README.md` how to regenerate screenshots for an upgrade pull request.**
+- [ ] **Step 6: Commit** `feat(ui-kit): component gallery and baseline screenshots`

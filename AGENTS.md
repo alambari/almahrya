@@ -19,7 +19,9 @@ Rules for anyone changing Almahrya, people and coding agents alike. Read this, t
 - One backend (`almahryad`) owns all state and all side effects. Clients (desktop, web) only call the API.
 - `core` and `api-types` are pure: no GPUI, no network, no filesystem, no async runtime specifics.
 - Only `engine` touches git, files, SQLite, the sidecar, PTYs and the network. `api` stays thin.
-- GPUI lives only in `ui-kit` and `app`. Pin GPUI to a commit.
+- Only `ui-kit` may depend on or `use` GPUI and gpui-component. `app` uses `ui-kit` components and nothing else from
+  GPUI, so one crate absorbs every GPUI upgrade. GPUI comes from crates.io as `gpui-pre` and is pinned to an exact
+  version; see "Upgrading GPUI" in ARCHITECTURE.md before changing it.
 - Every API type lives in `api-types`. Never hand-write TypeScript types for the API; generate them.
 - The sidecar holds no policy. Every permission decision is made in Rust from rules in `core`.
 - Never run an agent session in `bypassPermissions`. Never add a way to grant production writes or secret reads.

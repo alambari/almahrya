@@ -59,7 +59,7 @@ Anti-goals (would be a failure even if it works)
 
 ## 3. Constraints
 
-- macOS first. Desktop UI in Rust with GPUI (plus gpui-component), pinned to a commit and wrapped in `ui-kit`.
+- macOS first. Desktop UI in Rust with GPUI (plus gpui-component), pinned to exact crate versions (GPUI is published on crates.io as `gpui-pre`) and wrapped in `ui-kit`, the only crate allowed to import it.
 - Claude through the official Claude Agent SDK in a TypeScript sidecar, pinned. The Rust side validates every
   event and owns every permission decision; the sidecar owns no policy.
 - Agent SDK tool search must stay on (first-party API base URL, no proxy). Connectors needed from the first turn

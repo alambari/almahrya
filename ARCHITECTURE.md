@@ -49,11 +49,12 @@ the first client; a React web app is the second, later. The design document is
 | `api` | `engine`, `api-types` | HTTP and WebSocket server. Thin: validates, calls the engine, streams events. |
 | `daemon` | `api`, `engine` | The `almahryad` binary: config, logging, launchd integration, single-instance lock. |
 | `client` | `api-types` | Rust client for the API (HTTP + WebSocket), used by the desktop app. |
-| `ui-kit` | GPUI | App components wrapped around GPUI and gpui-component. GPUI stays inside this crate and `app`. |
-| `app` | `client`, `ui-kit` | The desktop binary. No business logic: it renders API state and sends commands. |
+| `ui-kit` | GPUI | App components wrapped around GPUI and gpui-component. The only crate that depends on GPUI. Includes a component gallery used to compare before and after an upgrade. |
+| `app` | `client`, `ui-kit` | The desktop binary. No business logic and no direct GPUI imports: it renders API state with `ui-kit` components and sends commands. |
 
 Rules:
 - `core` and `api-types` never depend on GPUI, tokio-specific IO, or network crates.
+- Only `ui-kit` depends on GPUI. A CI check fails if any other crate lists `gpui`, `gpui-pre` or `gpui-component`.
 - Only `engine` performs side effects. `api` and `app` never touch git, files, the database or the sidecar directly.
 - Every external dependency is declared once in the workspace `Cargo.toml` with an exact version.
 
@@ -181,3 +182,22 @@ configuration in `config.toml`. They never appear in code or tests.
 - `engine`, `api`, `readpath`: integration tests in each crate's `tests/` with a fake sidecar and a fake Lark/GitLab.
 - `api`: contract tests that the generated TypeScript types match the Rust types.
 - The sidecar: tests against a recorded SDK message stream.
+
+## Upgrading GPUI
+
+GPUI is pre-1.0 and changes without notice, so upgrades are planned, small and checked.
+
+- Where it comes from: gpui-component takes GPUI from crates.io as `gpui-pre`, so both are pinned as exact crate
+  versions in the root `Cargo.toml` (the versions that built in `docs/superpowers/spikes/gpui.md`). Do not add a git
+  dependency on the Zed repository next to them; the types would not match.
+- Blast radius: only `ui-kit` imports GPUI. An upgrade edits `ui-kit` and, if a component signature changes,
+  the call sites in `app`.
+- Procedure:
+  1. Create a branch `chore/gpui-<version>`.
+  2. Bump the pinned versions together (`gpui-pre`, `gpui-pre-platform`, `gpui-component`).
+  3. Fix compile errors inside `ui-kit` only.
+  4. Run `scripts/check.sh`, then the component gallery (`cargo run -p almahrya-ui-kit --example gallery`) and
+     save its screenshots next to the previous ones in a pull request for comparison.
+  5. Merge only when tests pass and the gallery looks the same or better.
+- Fonts are embedded in the app, not read from the user's font folder.
+- The window surface is tagged Display P3; saturated colours are checked in the gallery.
