@@ -33,7 +33,7 @@ Rules:
 
 - UI: Plus Jakarta Sans. Code, diffs, terminal, paths, keys, skill names: JetBrains Mono. Nothing else.
 - Scale: 12 (captions), 13 (body, controls), 15 (reading text in sessions), 20 (drawer titles), 28 (page titles).
-- Sentence case everywhere. No all-caps labels. No metadata chains joined with middle dots.
+- Sentence case everywhere. No all-caps labels. No detail chains joined with middle dots.
 
 ## Layout
 
