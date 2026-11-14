@@ -7,3 +7,6 @@ node_modules/
 !CLAUDE.md
 .superpowers/
 /spikes/*/target
+
+# Local design files hold real data
+*.figcraft
