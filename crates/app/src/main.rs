@@ -4,13 +4,14 @@
 
 use almahrya_app::sessions_view::{self, UiCommand};
 use almahrya_local::paths::Paths;
-use almahrya_local::profile::Profile;
+use almahrya_local::profile::{self, Profile};
 use almahrya_ui_kit::{DevRibbon, WindowConfig, run_sessions_window};
 use std::process::ExitCode;
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
 
 fn main() -> ExitCode {
+    profile::warn_unknown_profile();
     let profile = Profile::from_env();
     let paths = match Paths::for_profile(profile) {
         Ok(paths) => paths,

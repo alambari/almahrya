@@ -7,6 +7,27 @@ use std::ffi::OsStr;
 /// Selects the profile; the value `dev` means [`Profile::Dev`], anything else production.
 pub const PROFILE_ENV: &str = "ALMAHRYA_PROFILE";
 
+/// The one-line warning for an `ALMAHRYA_PROFILE` value that is neither `dev` nor
+/// `production` (a typo such as `Dev` silently selects production otherwise), or `None`.
+pub fn unknown_profile_warning(value: Option<&OsStr>) -> Option<String> {
+    let value = value?;
+    if value.is_empty() || value == "dev" || value == "production" {
+        return None;
+    }
+    Some(format!(
+        "warning: {PROFILE_ENV}={} is neither \"dev\" nor \"production\"; using the production profile",
+        value.to_string_lossy()
+    ))
+}
+
+/// Prints [`unknown_profile_warning`] for this process to stderr. The daemon and the app
+/// call it once at start; [`Profile::from_env`] stays silent so tests can call it freely.
+pub fn warn_unknown_profile() {
+    if let Some(warning) = unknown_profile_warning(std::env::var_os(PROFILE_ENV).as_deref()) {
+        eprintln!("{warning}");
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Profile {
     #[default]

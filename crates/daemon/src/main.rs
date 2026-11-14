@@ -13,7 +13,7 @@ use crate::error::DaemonError;
 use crate::lock::InstanceLock;
 use almahrya_engine::Engine;
 use almahrya_local::paths::{self, Paths};
-use almahrya_local::profile::Profile;
+use almahrya_local::profile::{self, Profile};
 use almahrya_local::{LocalError, token_store};
 use almahrya_store::Store;
 use std::ffi::OsString;
@@ -95,6 +95,7 @@ fn install_agent(paths: &Paths, plist_dir: Option<PathBuf>) -> Result<(), Daemon
 }
 
 fn main() -> ExitCode {
+    profile::warn_unknown_profile();
     let result = parse(std::env::args_os().skip(1)).and_then(|command| {
         let paths = Paths::for_profile(Profile::from_env())?;
         match command {

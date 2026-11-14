@@ -289,10 +289,17 @@ fn dev_profile_install_agent_refuses() {
 fn profile_env_other_than_dev_is_production() {
     let env = Env::new();
     let (out, plist) = install_agent(&env, "staging");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
     assert!(plist.exists());
+    // Exact matching stays, but a value that is neither profile name is called out.
+    let warnings: Vec<_> = stderr
+        .lines()
+        .filter(|l| l.contains("ALMAHRYA_PROFILE=staging"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+
+    let (out, _) = install_agent(&env, "production");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("ALMAHRYA_PROFILE"), "{stderr}");
 }

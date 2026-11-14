@@ -83,3 +83,30 @@ fn profile_env_other_than_dev_is_production() {
         Profile::Production
     );
 }
+
+#[test]
+fn unknown_profile_values_get_a_warning() {
+    use almahrya_local::profile::unknown_profile_warning;
+    use std::ffi::OsStr;
+    for quiet in [None, Some(""), Some("dev"), Some("production")] {
+        assert_eq!(
+            unknown_profile_warning(quiet.map(OsStr::new)),
+            None,
+            "{quiet:?}"
+        );
+    }
+    for typo in ["Dev", "dev ", "staging"] {
+        let warning = unknown_profile_warning(Some(OsStr::new(typo))).unwrap();
+        assert!(
+            warning.contains(&format!("ALMAHRYA_PROFILE={typo}")),
+            "{warning}"
+        );
+        assert!(warning.contains("production profile"), "{warning}");
+        assert!(!warning.contains('\n'));
+        // The value still selects production; the warning changes nothing.
+        assert_eq!(
+            Profile::from_value(Some(OsStr::new(typo))),
+            Profile::Production
+        );
+    }
+}
