@@ -6,3 +6,6 @@ publish.workspace = true
 
 [dependencies]
 almahrya-core.workspace = true
+
+[lints]
+workspace = true

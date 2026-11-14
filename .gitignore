@@ -6,3 +6,4 @@ node_modules/
 !AGENTS.md
 !CLAUDE.md
 .superpowers/
+/spikes/*/target

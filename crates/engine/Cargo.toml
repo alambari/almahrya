@@ -9,3 +9,6 @@ almahrya-core.workspace = true
 almahrya-store.workspace = true
 almahrya-connectors.workspace = true
 almahrya-runtimes.workspace = true
+
+[lints]
+workspace = true

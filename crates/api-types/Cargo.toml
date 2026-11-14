@@ -1,0 +1,11 @@
+[package]
+name = "almahrya-api-types"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+almahrya-core.workspace = true
+
+[lints]
+workspace = true
