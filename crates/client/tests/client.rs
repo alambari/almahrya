@@ -104,35 +104,95 @@ async fn create_and_list_over_unix_socket() {
     server.shutdown().await;
 }
 
+/// Serves `engine` on `path` from a private runtime in its own thread, so that
+/// shutting the runtime down really drops every open connection (a graceful
+/// shutdown leaves upgraded WebSockets attached).
+struct IsolatedServer {
+    thread: std::thread::JoinHandle<()>,
+    stop: std::sync::mpsc::Sender<()>,
+}
+
+impl IsolatedServer {
+    fn unix(engine: Arc<Engine>, path: &Path) -> IsolatedServer {
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let (ready_tx, ready) = std::sync::mpsc::channel::<()>();
+        let path = path.to_path_buf();
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .unwrap();
+            let app = router(engine, Token::new(TOKEN).unwrap());
+            let socket = path.clone();
+            runtime.spawn(async move {
+                let _ = serve_unix(app, &socket, std::future::pending()).await;
+            });
+            while !path.exists() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            ready_tx.send(()).unwrap();
+            let _ = stopped.recv();
+            runtime.shutdown_timeout(Duration::from_secs(5));
+        });
+        ready.recv_timeout(Duration::from_secs(10)).unwrap();
+        IsolatedServer { thread, stop }
+    }
+
+    /// Drops the runtime (and with it the listener and all connections).
+    fn kill(self) {
+        self.stop.send(()).unwrap();
+        self.thread.join().unwrap();
+    }
+}
+
 #[tokio::test]
 async fn reconnect_resumes_without_gap_or_duplicate() {
     let dir = short_dir();
     let sock = dir.path().join("r.sock");
-    let engine = engine(dir.path(), DEFAULT_RETENTION);
-    let server1 = Server::unix(engine.clone(), &sock);
-    wait_for_socket(&sock).await;
+    let engine1 = engine(dir.path(), DEFAULT_RETENTION);
+    let server1 = IsolatedServer::unix(engine1.clone(), &sock);
     let client = Client::unix(sock.clone(), TOKEN.into());
     let mut events = pin!(client.events(0));
-    engine
+    engine1
         .create_session("s1".into(), SessionKind::Chat)
         .await
         .unwrap();
     let first = next(&mut events).await;
     assert_eq!(created_title(&first), "s1");
 
-    server1.shutdown().await;
-    engine
+    server1.kill();
+    // The runtime died without running the socket cleanup.
+    std::fs::remove_file(&sock).unwrap();
+    assert!(!sock.exists());
+
+    // A second engine over the same database: only replay from the store can deliver
+    // these, a lingering connection to the first engine cannot.
+    let engine2 = engine(dir.path(), DEFAULT_RETENTION);
+    engine2
         .create_session("s2".into(), SessionKind::Chat)
         .await
         .unwrap();
-    engine
+    engine2
         .create_session("s3".into(), SessionKind::Chat)
         .await
         .unwrap();
-    let server2 = Server::unix(engine.clone(), &sock);
+    // The old connection is closed and no server listens: nothing can arrive yet.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), events.next())
+            .await
+            .is_err(),
+        "nothing may be delivered while no server is running"
+    );
+    let server2 = Server::unix(engine2.clone(), &sock);
 
-    let second = next(&mut events).await;
-    let third = next(&mut events).await;
+    let (second, third) = tokio::time::timeout(Duration::from_secs(10), async {
+        let second = next(&mut events).await;
+        let third = next(&mut events).await;
+        (second, third)
+    })
+    .await
+    .expect("stream did not resume after reconnect");
     assert_eq!(created_title(&second), "s2");
     assert_eq!(created_title(&third), "s3");
     assert_eq!(second.seq, first.seq + 1);
