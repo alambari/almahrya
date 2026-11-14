@@ -3,3 +3,15 @@
 //!
 //! It runs on its own async runtime, separate from the GPUI executor, and talks to
 //! the UI only through channels.
+
+mod events;
+
+pub use events::{DEFAULT_RETENTION, Engine};
+
+#[derive(Debug, thiserror::Error)]
+pub enum EngineError {
+    #[error(transparent)]
+    Store(#[from] almahrya_store::StoreError),
+    #[error("engine lock poisoned")]
+    Poisoned,
+}

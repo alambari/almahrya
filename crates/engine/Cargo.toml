@@ -7,8 +7,18 @@ publish.workspace = true
 [dependencies]
 almahrya-core.workspace = true
 almahrya-store.workspace = true
+almahrya-api-types.workspace = true
 almahrya-connectors.workspace = true
 almahrya-runtimes.workspace = true
+async-stream.workspace = true
+futures-core.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
