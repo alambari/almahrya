@@ -4,7 +4,7 @@
 //! client and talks to the window only through channels, the same boundary the engine
 //! keeps with the UI.
 
-use crate::daemon_link::ensure_daemon;
+use crate::daemon_link::{LinkOptions, RequestError, bounded, ensure_daemon_with};
 use almahrya_api_types::{CreateSessionRequest, EventDto, SessionDto, SessionKindDto};
 use almahrya_client::{Client, ClientError};
 use almahrya_local::paths::Paths;
@@ -13,7 +13,8 @@ use futures_util::StreamExt;
 use std::time::Duration;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::task::JoinHandle;
 
 /// How often the daemon is checked; a failed check restarts it.
 const HEALTH_INTERVAL: Duration = Duration::from_secs(1);
@@ -95,6 +96,7 @@ struct Closed;
 
 struct Sync {
     ui: UnboundedSender<SessionsUpdate>,
+    options: LinkOptions,
     list: SessionList,
     /// Highest event `seq` applied, so a new event stream resumes after it.
     last_seq: u64,
@@ -113,8 +115,8 @@ impl Sync {
         self.send(SessionsUpdate::Sessions(self.list.items()))
     }
 
-    async fn reload(&mut self, client: &Client) -> Result<(), ClientError> {
-        let sessions = client.list_sessions().await?;
+    async fn reload(&mut self, client: &Client) -> Result<(), RequestError> {
+        let sessions = bounded(self.options.request_timeout, client.list_sessions()).await?;
         self.list.replace(sessions);
         Ok(())
     }
@@ -130,6 +132,7 @@ pub async fn run(
 ) {
     let mut sync = Sync {
         ui,
+        options: LinkOptions::default(),
         list: SessionList::default(),
         last_seq: 0,
     };
@@ -142,7 +145,7 @@ async fn connection_loop(
     commands: &mut UnboundedReceiver<UiCommand>,
 ) -> Result<(), Closed> {
     loop {
-        let link = match ensure_daemon(paths).await {
+        let link = match ensure_daemon_with(paths, &sync.options).await {
             Ok(link) => link,
             Err(e) => {
                 sync.status(ConnectionStatus::Failed(e.to_string()))?;
@@ -163,14 +166,47 @@ async fn connection_loop(
     }
 }
 
-/// Applies events and commands until the daemon stops answering.
+/// Aborts the task when dropped, so helpers never outlive the connection they serve.
+struct AbortOnDrop<T>(JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Checks the daemon every [`HEALTH_INTERVAL`] on its own task and resolves once a check
+/// fails or times out, so a silent daemon never blocks the loop that serves the window.
+fn watch_health(
+    client: Client,
+    limit: Duration,
+) -> (AbortOnDrop<()>, tokio::sync::oneshot::Receiver<()>) {
+    let (dead_tx, dead_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(HEALTH_INTERVAL);
+        loop {
+            tick.tick().await;
+            if bounded(limit, client.health()).await.is_err() {
+                let _ = dead_tx.send(());
+                return;
+            }
+        }
+    });
+    (AbortOnDrop(task), dead_rx)
+}
+
+/// Applies events and commands until the daemon stops answering. Requests run on their
+/// own tasks with a time limit; the loop only waits for results.
 async fn follow(
     client: &Client,
     sync: &mut Sync,
     commands: &mut UnboundedReceiver<UiCommand>,
 ) -> Result<(), Closed> {
+    let limit = sync.options.request_timeout;
     let mut events = Box::pin(client.events(sync.last_seq));
-    let mut health = tokio::time::interval(HEALTH_INTERVAL);
+    let (_watcher, mut dead) = watch_health(client.clone(), limit);
+    let (created_tx, mut created) = unbounded_channel::<Result<SessionDto, RequestError>>();
+    let mut creating: Vec<AbortOnDrop<()>> = Vec::new();
     loop {
         tokio::select! {
             item = events.next() => match item {
@@ -198,26 +234,29 @@ async fn follow(
             command = commands.recv() => match command {
                 None => return Err(Closed),
                 Some(UiCommand::NewChatSession) => {
-                    let request = CreateSessionRequest {
-                        title: "New chat".to_owned(),
-                        kind: SessionKindDto::Chat,
-                    };
-                    match client.create_session(request).await {
-                        // The event will say the same; whichever comes first is shown.
-                        Ok(session) => {
-                            if sync.list.insert(session) {
-                                sync.publish()?;
-                            }
-                        }
-                        Err(e) => eprintln!("could not create a session: {e}"),
-                    }
+                    let client = client.clone();
+                    let reply = created_tx.clone();
+                    creating.retain(|task| !task.0.is_finished());
+                    creating.push(AbortOnDrop(tokio::spawn(async move {
+                        let request = CreateSessionRequest {
+                            title: "New chat".to_owned(),
+                            kind: SessionKindDto::Chat,
+                        };
+                        let _ = reply.send(bounded(limit, client.create_session(request)).await);
+                    })));
                 }
             },
-            _ = health.tick() => {
-                if client.health().await.is_err() {
-                    return Ok(());
+            Some(result) = created.recv() => match result {
+                // The event will say the same; whichever comes first is shown.
+                Ok(session) => {
+                    if sync.list.insert(session) {
+                        sync.publish()?;
+                    }
                 }
-            }
+                Err(RequestError::TimedOut(_)) => return Ok(()),
+                Err(e) => eprintln!("could not create a session: {e}"),
+            },
+            _ = &mut dead => return Ok(()),
         }
     }
 }
@@ -253,6 +292,16 @@ mod tests {
         assert_eq!(list.apply(&created), Applied::Changed);
         assert_eq!(list.apply(&created), Applied::Unchanged);
         assert_eq!(ids(&list), ["c", "b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn a_request_that_never_answers_times_out() {
+        let limit = Duration::from_millis(50);
+        let never = std::future::pending::<Result<(), ClientError>>();
+        let result = tokio::time::timeout(Duration::from_secs(2), bounded(limit, never))
+            .await
+            .expect("bounded request hung");
+        assert!(matches!(result, Err(RequestError::TimedOut(l)) if l == limit));
     }
 
     #[test]

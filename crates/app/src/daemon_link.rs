@@ -7,7 +7,7 @@
 //! the launchd agent uses. A thread waits on it so it never lingers as a zombie while the
 //! app runs; when the app exits, launchd adopts it.
 
-use almahrya_client::Client;
+use almahrya_client::{Client, ClientError};
 use almahrya_local::LocalError;
 use almahrya_local::paths::{self, Paths};
 use almahrya_local::token_store;
@@ -22,6 +22,8 @@ pub const DAEMON_BIN_ENV: &str = "ALMAHRYA_DAEMON_BIN";
 const DAEMON_BIN_NAME: &str = "almahryad";
 /// How long a started daemon gets to answer `/v1/health`.
 pub const START_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long one request may take before the daemon counts as not answering.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(50);
 /// Exit code of a second instance: another start won the race, keep polling.
 const ALREADY_RUNNING: i32 = 3;
@@ -67,6 +69,28 @@ pub enum LinkError {
     Exited { status: String, log: PathBuf },
     #[error("almahryad did not answer within {0:?}")]
     Timeout(Duration),
+    #[error(
+        "almahryad accepts connections but is not answering; see {log}, or stop it so the app can start a new one"
+    )]
+    NotResponding { log: PathBuf },
+}
+
+/// How long the link waits for the daemon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkOptions {
+    /// Wall-clock limit for finding or starting the daemon.
+    pub start_timeout: Duration,
+    /// Limit for one request to the daemon.
+    pub request_timeout: Duration,
+}
+
+impl Default for LinkOptions {
+    fn default() -> Self {
+        LinkOptions {
+            start_timeout: START_TIMEOUT,
+            request_timeout: REQUEST_TIMEOUT,
+        }
+    }
 }
 
 /// `$ALMAHRYA_DAEMON_BIN`, else `almahryad` next to the running executable.
@@ -81,22 +105,70 @@ pub fn daemon_binary() -> Result<PathBuf, LinkError> {
 /// Connects to the daemon at `paths`; if nothing answers on the socket, starts
 /// `almahryad`, waits up to [`START_TIMEOUT`] for `/v1/health`, then connects.
 pub async fn ensure_daemon(paths: &Paths) -> Result<DaemonLink, LinkError> {
+    ensure_daemon_with(paths, &LinkOptions::default()).await
+}
+
+/// A request that failed or took too long.
+#[derive(Debug, thiserror::Error)]
+pub enum RequestError {
+    #[error("almahryad did not answer within {0:?}")]
+    TimedOut(Duration),
+    #[error(transparent)]
+    Client(#[from] ClientError),
+}
+
+/// Runs one client request, giving up after `limit`. The client itself has no timeout,
+/// and a stopped or deadlocked daemon still accepts connections through the kernel
+/// backlog, so every request the app makes goes through here.
+pub async fn bounded<T>(
+    limit: Duration,
+    request: impl Future<Output = Result<T, ClientError>>,
+) -> Result<T, RequestError> {
+    match tokio::time::timeout(limit, request).await {
+        Ok(result) => Ok(result?),
+        Err(_) => Err(RequestError::TimedOut(limit)),
+    }
+}
+
+/// Request limit capped by what is left of the start budget.
+fn budget(options: &LinkOptions, start: Instant) -> Duration {
+    let left = options.start_timeout.saturating_sub(start.elapsed());
+    options
+        .request_timeout
+        .min(left)
+        .max(Duration::from_millis(1))
+}
+
+/// [`ensure_daemon`] with explicit limits. Returns within about `start_timeout`.
+pub async fn ensure_daemon_with(
+    paths: &Paths,
+    options: &LinkOptions,
+) -> Result<DaemonLink, LinkError> {
+    let start = Instant::now();
     let token = token_store::select()?.get_or_create()?;
     let client = Client::unix(paths.socket(), token.expose().to_owned());
-    if let Ok(health) = client.health().await {
-        return Ok(DaemonLink {
-            client,
-            pid: health.pid,
-            spawned: false,
-        });
+    match bounded(budget(options, start), client.health()).await {
+        Ok(health) => {
+            return Ok(DaemonLink {
+                client,
+                pid: health.pid,
+                spawned: false,
+            });
+        }
+        // Something holds the socket but does not answer. Starting another daemon would
+        // only fail on the instance lock, so wait for this one instead.
+        Err(RequestError::TimedOut(_)) => {
+            return wait_for_silent(client, paths, options, start).await;
+        }
+        // Nothing listens (no socket, or a stale one): start a daemon.
+        Err(RequestError::Client(_)) => {}
     }
 
     let mut child = spawn(&daemon_binary()?, paths)?;
-    let start = Instant::now();
     let mut child_running = true;
     loop {
         // Until the timeout, any failure means "not listening yet".
-        if let Ok(health) = client.health().await {
+        if let Ok(health) = bounded(budget(options, start), client.health()).await {
             reap(child);
             return Ok(DaemonLink {
                 client,
@@ -113,13 +185,37 @@ pub async fn ensure_daemon(paths: &Paths) -> Result<DaemonLink, LinkError> {
             }
             child_running = false;
         }
-        if start.elapsed() >= START_TIMEOUT {
+        if start.elapsed() >= options.start_timeout {
             // Ours and not answering: do not leave it behind.
             let _ = child.kill();
             reap(child);
-            return Err(LinkError::Timeout(START_TIMEOUT));
+            return Err(LinkError::Timeout(options.start_timeout));
         }
         tokio::time::sleep(POLL).await;
+    }
+}
+
+/// Keeps asking a daemon that accepts but does not answer, until the start budget ends.
+async fn wait_for_silent(
+    client: Client,
+    paths: &Paths,
+    options: &LinkOptions,
+    start: Instant,
+) -> Result<DaemonLink, LinkError> {
+    loop {
+        if start.elapsed() >= options.start_timeout {
+            return Err(LinkError::NotResponding {
+                log: paths::stderr_log(&paths.data_dir),
+            });
+        }
+        tokio::time::sleep(POLL).await;
+        if let Ok(health) = bounded(budget(options, start), client.health()).await {
+            return Ok(DaemonLink {
+                client,
+                pid: health.pid,
+                spawned: false,
+            });
+        }
     }
 }
 
