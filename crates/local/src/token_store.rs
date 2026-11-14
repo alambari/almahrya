@@ -1,5 +1,7 @@
 //! Where the API token lives: the macOS Keychain in normal use, a 0600 file when
-//! `ALMAHRYA_TOKEN_FILE` is set (tests, development). The token is never printed.
+//! `ALMAHRYA_TOKEN_FILE` is set (tests, and `scripts/dev.sh` for the development
+//! profile). The daemon creates the token on its first start; the desktop app only reads
+//! it. The token is never printed.
 
 use crate::LocalError;
 use crate::profile::Profile;
@@ -65,8 +67,42 @@ fn to_token(value: &str) -> Result<ApiToken, LocalError> {
 }
 
 pub trait TokenStore {
-    /// Returns the stored token, generating and storing one on first use.
+    /// The stored token, or `None` while none exists. Never creates one: the desktop app
+    /// reads with this and waits for the daemon to create the token on its first start.
+    fn get(&self) -> Result<Option<ApiToken>, LocalError>;
+
+    /// Returns the stored token, generating and storing one on first use. Only the
+    /// daemon calls this, while it holds the instance lock.
     fn get_or_create(&self) -> Result<ApiToken, LocalError>;
+}
+
+/// What an add-only write found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Added {
+    Created,
+    /// Another process stored a token first; the existing one was left alone.
+    AlreadyExists,
+}
+
+/// Read, else create, on top of a backend whose `add` never overwrites. When another
+/// process wins the race between the read and the add, its token is read and returned,
+/// so every process ends up with the one stored value.
+pub fn get_or_create_with(
+    get: impl Fn() -> Result<Option<ApiToken>, LocalError>,
+    add: impl Fn(&str) -> Result<Added, LocalError>,
+) -> Result<ApiToken, LocalError> {
+    if let Some(token) = get()? {
+        return Ok(token);
+    }
+    let secret = generate()?;
+    match add(secret.expose())? {
+        Added::Created => to_token(secret.expose()),
+        Added::AlreadyExists => get()?.ok_or_else(|| {
+            LocalError::InvalidStoredToken(
+                "another process created the token, but it could not be read".to_owned(),
+            )
+        }),
+    }
 }
 
 /// The file store when `ALMAHRYA_TOKEN_FILE` is set, else the Keychain item of `profile`.
@@ -89,39 +125,71 @@ fn keychain(_profile: Profile) -> Result<Box<dyn TokenStore>, LocalError> {
     Err(LocalError::NoTokenStore)
 }
 
-/// Token in a file created with mode 0600. For tests and development only.
+/// Token in a file with mode 0600. For tests and `scripts/dev.sh`, which keeps the
+/// development token in the development data directory so it never touches the Keychain.
 pub struct FileTokenStore {
     pub path: PathBuf,
 }
 
-impl TokenStore for FileTokenStore {
-    fn get_or_create(&self) -> Result<ApiToken, LocalError> {
-        let created = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&self.path);
-        match created {
-            Ok(mut file) => {
-                let secret = generate()?;
-                file.write_all(secret.expose().as_bytes())
-                    .and_then(|()| file.write_all(b"\n"))
-                    .map_err(|e| {
-                        LocalError::io(format!("could not write {}", self.path.display()), e)
-                    })?;
-                to_token(secret.expose())
-            }
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                let text = std::fs::read_to_string(&self.path).map_err(|e| {
-                    LocalError::io(format!("could not read {}", self.path.display()), e)
-                })?;
-                to_token(&text)
-            }
+impl FileTokenStore {
+    /// Writes the token to a private temporary file, then hard-links it into place. The
+    /// link fails when the file exists, so a reader never sees a half-written token and
+    /// a concurrent writer never replaces the first one.
+    fn add(&self, secret: &str) -> Result<Added, LocalError> {
+        let name = self.path.file_name().ok_or_else(|| {
+            LocalError::io(
+                format!("{} is not a file path", self.path.display()),
+                std::io::Error::from(ErrorKind::InvalidInput),
+            )
+        })?;
+        let mut tmp_name = std::ffi::OsString::from(".");
+        tmp_name.push(name);
+        tmp_name.push(format!(".{}.tmp", std::process::id()));
+        let tmp = self.path.with_file_name(tmp_name);
+        let written = write_new(&tmp, secret);
+        let linked = written.and_then(|()| std::fs::hard_link(&tmp, &self.path));
+        let _ = std::fs::remove_file(&tmp);
+        match linked {
+            Ok(()) => Ok(Added::Created),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(Added::AlreadyExists),
             Err(e) => Err(LocalError::io(
                 format!("could not create {}", self.path.display()),
                 e,
             )),
         }
+    }
+}
+
+/// Creates `path` with mode 0600 and writes `secret` and a newline to it.
+fn write_new(path: &std::path::Path, secret: &str) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(secret.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.sync_all()
+}
+
+impl TokenStore for FileTokenStore {
+    fn get(&self) -> Result<Option<ApiToken>, LocalError> {
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => to_token(&text).map(Some),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(LocalError::io(
+                format!("could not read {}", self.path.display()),
+                e,
+            )),
+        }
+    }
+
+    fn get_or_create(&self) -> Result<ApiToken, LocalError> {
+        get_or_create_with(|| self.get(), |secret| self.add(secret))
     }
 }
 
@@ -145,12 +213,34 @@ impl KeychainTokenStore {
     pub fn service(&self) -> &'static str {
         self.service
     }
+
+    /// `SecItemAdd` only. `set_generic_password` would update an existing item and so
+    /// replace a token another process just stored; this reports the duplicate instead.
+    fn add(&self, secret: &str) -> Result<Added, LocalError> {
+        use core_foundation::data::CFData;
+        use security_framework::item::{ItemAddOptions, ItemAddValue, ItemClass};
+        /// `errSecDuplicateItem`.
+        const DUPLICATE: i32 = -25299;
+
+        let mut options = ItemAddOptions::new(ItemAddValue::Data {
+            class: ItemClass::generic_password(),
+            data: CFData::from_buffer(secret.as_bytes()),
+        });
+        options
+            .set_service(self.service)
+            .set_account_name(Self::ACCOUNT);
+        match options.add() {
+            Ok(()) => Ok(Added::Created),
+            Err(e) if e.code() == DUPLICATE => Ok(Added::AlreadyExists),
+            Err(e) => Err(LocalError::Keychain(e.to_string())),
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl TokenStore for KeychainTokenStore {
-    fn get_or_create(&self) -> Result<ApiToken, LocalError> {
-        use security_framework::passwords::{get_generic_password, set_generic_password};
+    fn get(&self) -> Result<Option<ApiToken>, LocalError> {
+        use security_framework::passwords::get_generic_password;
         /// `errSecItemNotFound`.
         const NOT_FOUND: i32 = -25300;
 
@@ -158,16 +248,15 @@ impl TokenStore for KeychainTokenStore {
             Ok(bytes) => {
                 let text = String::from_utf8(bytes)
                     .map_err(|_| LocalError::InvalidStoredToken("not UTF-8".to_owned()))?;
-                to_token(&text)
+                to_token(&text).map(Some)
             }
-            Err(e) if e.code() == NOT_FOUND => {
-                let secret = generate()?;
-                set_generic_password(self.service, Self::ACCOUNT, secret.expose().as_bytes())
-                    .map_err(|e| LocalError::Keychain(e.to_string()))?;
-                to_token(secret.expose())
-            }
+            Err(e) if e.code() == NOT_FOUND => Ok(None),
             Err(e) => Err(LocalError::Keychain(e.to_string())),
         }
+    }
+
+    fn get_or_create(&self) -> Result<ApiToken, LocalError> {
+        get_or_create_with(|| self.get(), |secret| self.add(secret))
     }
 }
 
@@ -219,6 +308,55 @@ mod tests {
     }
 
     #[test]
+    fn get_never_creates_a_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        let store = FileTokenStore { path: path.clone() };
+        assert!(store.get().unwrap().is_none());
+        assert!(!path.exists());
+        let created = store.get_or_create().unwrap();
+        assert_eq!(store.get().unwrap().unwrap().expose(), created.expose());
+    }
+
+    #[test]
+    fn file_store_keeps_the_token_another_process_stored_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        let store = FileTokenStore { path: path.clone() };
+        assert_eq!(store.add("winner").unwrap(), Added::Created);
+        assert_eq!(store.add("loser").unwrap(), Added::AlreadyExists);
+        assert_eq!(store.get().unwrap().unwrap().expose(), "winner");
+        assert_eq!(mode_of(&path), "600");
+        // No temporary file is left next to the token.
+        let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(names.len(), 1);
+    }
+
+    #[test]
+    fn losing_the_create_race_returns_the_stored_token() {
+        use std::cell::RefCell;
+        // A fake backend that is empty at our first read; another process stores its
+        // token before our add, so the add finds a duplicate and stores nothing.
+        let stored: RefCell<Option<String>> = RefCell::new(None);
+        let get = || Ok(stored.borrow().as_deref().map(|t| to_token(t).unwrap()));
+        let add = |_: &str| {
+            *stored.borrow_mut() = Some("winner".to_owned());
+            Ok(Added::AlreadyExists)
+        };
+        let token = get_or_create_with(get, add).unwrap();
+        assert_eq!(token.expose(), "winner");
+    }
+
+    #[test]
+    fn winning_the_create_race_returns_the_new_token() {
+        let token = get_or_create_with(|| Ok(None), |_| Ok(Added::Created)).unwrap();
+        assert_eq!(token.expose().len(), 64);
+        let existing =
+            get_or_create_with(|| Ok(Some(to_token("kept").unwrap())), |_| unreachable!()).unwrap();
+        assert_eq!(existing.expose(), "kept");
+    }
+
+    #[test]
     fn empty_token_file_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("token");
@@ -226,6 +364,10 @@ mod tests {
         let store = FileTokenStore { path };
         assert!(matches!(
             store.get_or_create(),
+            Err(LocalError::InvalidStoredToken(_))
+        ));
+        assert!(matches!(
+            store.get(),
             Err(LocalError::InvalidStoredToken(_))
         ));
     }
