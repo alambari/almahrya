@@ -1,0 +1,20 @@
+# Throwaway spike: a PTY shell parsed by libghostty-vt (or alacritty_terminal)
+# and drawn as a cell grid in a GPUI window. Outside the main workspace on
+# purpose (empty [workspace] table below). Building libghostty-vt needs Zig
+# 0.15.2 and git on PATH. Findings: docs/superpowers/spikes/terminal.md.
+[package]
+name = "terminal-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Same GPUI pins as spikes/gpui-window (see docs/superpowers/spikes/gpui.md).
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+libghostty-vt = "=0.2.2"
+alacritty_terminal = "=0.26.0"
+portable-pty = "=0.9.0"
+async-channel = "=2.5.0"
