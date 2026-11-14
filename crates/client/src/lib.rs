@@ -7,7 +7,7 @@
 mod events;
 mod http;
 
-use almahrya_api_types::{ApiError, CreateSessionRequest, EventEnvelope, SessionDto};
+use almahrya_api_types::{ApiError, CreateSessionRequest, EventEnvelope, HealthDto, SessionDto};
 use futures_util::Stream;
 use std::fmt;
 use std::path::PathBuf;
@@ -82,6 +82,12 @@ impl Client {
         Client {
             inner: Arc::new(Inner { endpoint, token }),
         }
+    }
+
+    /// `/v1/health`: answers without a valid token, so it also tells whether anything
+    /// listens at all.
+    pub async fn health(&self) -> Result<HealthDto, ClientError> {
+        http::get_json(&self.inner, "/v1/health").await
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<SessionDto>, ClientError> {

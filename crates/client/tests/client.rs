@@ -101,6 +101,9 @@ async fn create_and_list_over_unix_socket() {
         .unwrap();
     let listed = client.list_sessions().await.unwrap();
     assert_eq!(listed, vec![created]);
+    let health = client.health().await.unwrap();
+    assert_eq!(health.status, "ok");
+    assert_eq!(health.pid, std::process::id());
     server.shutdown().await;
 }
 

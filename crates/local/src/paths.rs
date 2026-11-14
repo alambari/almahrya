@@ -1,5 +1,5 @@
-//! Where the daemon keeps its files (the app reads the same locations). Environment overrides exist for tests and for
-//! running a second copy side by side.
+//! Where the daemon keeps its files; the desktop app reads the same locations. Environment
+//! overrides exist for tests and for running a second copy side by side.
 
 use crate::LocalError;
 use std::ffi::OsString;
@@ -35,6 +35,28 @@ pub fn data_dir() -> Result<PathBuf, LocalError> {
     match env_path(DATA_DIR_ENV) {
         Some(p) => Ok(p),
         None => Ok(home()?.join("Library/Application Support/Almahrya")),
+    }
+}
+
+/// The locations one daemon and its clients agree on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    pub data_dir: PathBuf,
+    pub config_file: PathBuf,
+}
+
+impl Paths {
+    /// The default locations, or the `ALMAHRYA_DATA_DIR` and `ALMAHRYA_CONFIG` overrides.
+    pub fn from_env() -> Result<Paths, LocalError> {
+        Ok(Paths {
+            data_dir: data_dir()?,
+            config_file: config_file()?,
+        })
+    }
+
+    /// The daemon's Unix socket.
+    pub fn socket(&self) -> PathBuf {
+        socket(&self.data_dir)
     }
 }
 
