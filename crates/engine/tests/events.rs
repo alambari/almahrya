@@ -6,12 +6,27 @@ use almahrya_engine::Engine;
 use almahrya_store::Store;
 use futures_util::StreamExt;
 
-fn engine_with_retention(retention: u64) -> Engine {
-    let dir = tempfile::tempdir().unwrap().keep();
-    Engine::new(Store::open(&dir.join("e.db")).unwrap(), retention)
+/// An engine whose database directory is removed when the test ends.
+struct TestEngine {
+    engine: Engine,
+    _dir: tempfile::TempDir,
 }
 
-fn engine() -> Engine {
+impl std::ops::Deref for TestEngine {
+    type Target = Engine;
+
+    fn deref(&self) -> &Engine {
+        &self.engine
+    }
+}
+
+fn engine_with_retention(retention: u64) -> TestEngine {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::new(Store::open(&dir.path().join("e.db")).unwrap(), retention);
+    TestEngine { engine, _dir: dir }
+}
+
+fn engine() -> TestEngine {
     engine_with_retention(10_000)
 }
 
@@ -81,8 +96,8 @@ async fn list_sessions_returns_created_sessions() {
 
 #[test]
 fn pruning_between_oldest_check_and_batch_read_is_signalled() {
-    let dir = tempfile::tempdir().unwrap().keep();
-    let store = Store::open(&dir.join("e.db")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("e.db")).unwrap();
     for i in 0..5 {
         store
             .append_event(&EventDto::ReplayGap {
@@ -108,8 +123,8 @@ fn pruning_between_oldest_check_and_batch_read_is_signalled() {
 
 #[test]
 fn pruning_between_batches_is_signalled() {
-    let dir = tempfile::tempdir().unwrap().keep();
-    let store = Store::open(&dir.join("e.db")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("e.db")).unwrap();
     for i in 0..6 {
         store
             .append_event(&EventDto::ReplayGap {

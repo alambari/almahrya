@@ -3,11 +3,12 @@
 use almahrya_api_types::{EventDto, SessionDto, SessionKindDto};
 use almahrya_core::{Session, SessionId, SessionKind};
 use almahrya_store::Store;
-use std::path::PathBuf;
+use tempfile::TempDir;
 use time::OffsetDateTime;
 
-fn tmp() -> PathBuf {
-    tempfile::tempdir().unwrap().keep()
+/// Removed when the test ends, so no directory is left in `$TMPDIR`.
+fn tmp() -> TempDir {
+    tempfile::tempdir().unwrap()
 }
 
 fn created(title: &str) -> EventDto {
@@ -23,7 +24,8 @@ fn created(title: &str) -> EventDto {
 
 #[test]
 fn events_get_increasing_seq_and_replay_after() {
-    let s = Store::open(&tmp().join("a.db")).unwrap();
+    let dir = tmp();
+    let s = Store::open(&dir.path().join("a.db")).unwrap();
     let a = s.append_event(&created("one")).unwrap();
     let b = s.append_event(&created("two")).unwrap();
     assert_eq!(b.seq, a.seq + 1);
@@ -32,7 +34,8 @@ fn events_get_increasing_seq_and_replay_after() {
 
 #[test]
 fn prune_keeps_last_and_reports_oldest() {
-    let s = Store::open(&tmp().join("a.db")).unwrap();
+    let dir = tmp();
+    let s = Store::open(&dir.path().join("a.db")).unwrap();
     assert_eq!(s.oldest_seq().unwrap(), None);
     for i in 0..5 {
         s.append_event(&created(&format!("s{i}"))).unwrap();
@@ -44,7 +47,8 @@ fn prune_keeps_last_and_reports_oldest() {
 
 #[test]
 fn sessions_round_trip_newest_first_and_survive_reopen() {
-    let path = tmp().join("a.db");
+    let dir = tmp();
+    let path = dir.path().join("a.db");
     let mk = |title: &str, kind: SessionKind, secs: i64| Session {
         id: SessionId::new(),
         title: title.into(),
