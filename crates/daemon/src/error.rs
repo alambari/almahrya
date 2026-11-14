@@ -13,6 +13,12 @@ pub enum DaemonError {
         #[source]
         source: Box<toml::de::Error>,
     },
+    #[error(
+        "the development port would be {base} + 1, past the last port; set [dev] api_port in config.toml"
+    )]
+    DevPort { base: u16 },
+    #[error("the development profile has no launchd agent; use scripts/dev.sh")]
+    NoDevAgent,
     #[error("{context}: {source}")]
     Io {
         context: String,

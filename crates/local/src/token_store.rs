@@ -2,6 +2,7 @@
 //! `ALMAHRYA_TOKEN_FILE` is set (tests, development). The token is never printed.
 
 use crate::LocalError;
+use crate::profile::Profile;
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
@@ -68,23 +69,23 @@ pub trait TokenStore {
     fn get_or_create(&self) -> Result<ApiToken, LocalError>;
 }
 
-/// The file store when `ALMAHRYA_TOKEN_FILE` is set, else the Keychain.
-pub fn select() -> Result<Box<dyn TokenStore>, LocalError> {
+/// The file store when `ALMAHRYA_TOKEN_FILE` is set, else the Keychain item of `profile`.
+pub fn select(profile: Profile) -> Result<Box<dyn TokenStore>, LocalError> {
     if let Some(path) = std::env::var_os(TOKEN_FILE_ENV).filter(|v| !v.is_empty()) {
         return Ok(Box::new(FileTokenStore {
             path: PathBuf::from(path),
         }));
     }
-    keychain()
+    keychain(profile)
 }
 
 #[cfg(target_os = "macos")]
-fn keychain() -> Result<Box<dyn TokenStore>, LocalError> {
-    Ok(Box::new(KeychainTokenStore))
+fn keychain(profile: Profile) -> Result<Box<dyn TokenStore>, LocalError> {
+    Ok(Box::new(KeychainTokenStore::for_profile(profile)))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn keychain() -> Result<Box<dyn TokenStore>, LocalError> {
+fn keychain(_profile: Profile) -> Result<Box<dyn TokenStore>, LocalError> {
     Err(LocalError::NoTokenStore)
 }
 
@@ -124,14 +125,26 @@ impl TokenStore for FileTokenStore {
     }
 }
 
-/// Token in the login Keychain as a generic password.
+/// Token in the login Keychain as a generic password, one service per profile.
 #[cfg(target_os = "macos")]
-pub struct KeychainTokenStore;
+pub struct KeychainTokenStore {
+    service: &'static str,
+}
 
 #[cfg(target_os = "macos")]
 impl KeychainTokenStore {
-    pub const SERVICE: &'static str = "almahrya";
     pub const ACCOUNT: &'static str = "api-token";
+
+    /// The item of `profile`: service `almahrya`, or `almahrya-dev` for development.
+    pub fn for_profile(profile: Profile) -> KeychainTokenStore {
+        KeychainTokenStore {
+            service: profile.keychain_service(),
+        }
+    }
+
+    pub fn service(&self) -> &'static str {
+        self.service
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -141,7 +154,7 @@ impl TokenStore for KeychainTokenStore {
         /// `errSecItemNotFound`.
         const NOT_FOUND: i32 = -25300;
 
-        match get_generic_password(Self::SERVICE, Self::ACCOUNT) {
+        match get_generic_password(self.service, Self::ACCOUNT) {
             Ok(bytes) => {
                 let text = String::from_utf8(bytes)
                     .map_err(|_| LocalError::InvalidStoredToken("not UTF-8".to_owned()))?;
@@ -149,7 +162,7 @@ impl TokenStore for KeychainTokenStore {
             }
             Err(e) if e.code() == NOT_FOUND => {
                 let secret = generate()?;
-                set_generic_password(Self::SERVICE, Self::ACCOUNT, secret.expose().as_bytes())
+                set_generic_password(self.service, Self::ACCOUNT, secret.expose().as_bytes())
                     .map_err(|e| LocalError::Keychain(e.to_string()))?;
                 to_token(secret.expose())
             }

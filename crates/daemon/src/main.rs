@@ -1,5 +1,6 @@
 //! `almahryad`: the background daemon. With no arguments it serves the API on a Unix
 //! socket and on localhost; `install-agent` writes its LaunchAgent plist.
+//! `ALMAHRYA_PROFILE=dev` runs the development profile beside production.
 
 mod config;
 mod error;
@@ -11,7 +12,9 @@ use crate::config::Config;
 use crate::error::DaemonError;
 use crate::lock::InstanceLock;
 use almahrya_engine::Engine;
-use almahrya_local::{LocalError, paths, token_store};
+use almahrya_local::paths::{self, Paths};
+use almahrya_local::profile::Profile;
+use almahrya_local::{LocalError, token_store};
 use almahrya_store::Store;
 use std::ffi::OsString;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -52,8 +55,8 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, DaemonErro
     Ok(Command::InstallAgent { plist_dir })
 }
 
-fn serve() -> Result<(), DaemonError> {
-    let config = Config::load()?;
+fn serve(paths: &Paths) -> Result<(), DaemonError> {
+    let config = Config::load(paths)?;
     let socket = paths::socket(&config.data_dir);
     serve::check_socket_path(&socket)?;
     paths::ensure_dir(&config.data_dir)?;
@@ -62,7 +65,7 @@ fn serve() -> Result<(), DaemonError> {
     // Only now is a leftover socket known to be stale.
     paths::remove_stale_socket(&socket)?;
 
-    let stored = token_store::select()?.get_or_create()?;
+    let stored = token_store::select(paths.profile)?.get_or_create()?;
     let token = almahrya_api::Token::new(stored.expose())
         .map_err(|e| LocalError::InvalidStoredToken(e.to_string()))?;
     let store = Store::open(&paths::database(&config.data_dir))?;
@@ -79,9 +82,12 @@ fn serve() -> Result<(), DaemonError> {
     })
 }
 
-fn install_agent(plist_dir: Option<PathBuf>) -> Result<(), DaemonError> {
-    let data_dir = paths::data_dir()?;
-    let plist = launchd::install(plist_dir, &data_dir)?;
+fn install_agent(paths: &Paths, plist_dir: Option<PathBuf>) -> Result<(), DaemonError> {
+    // One agent label exists, and it belongs to production; dev.sh runs the dev daemon.
+    if paths.profile == Profile::Dev {
+        return Err(DaemonError::NoDevAgent);
+    }
+    let plist = launchd::install(plist_dir, &paths.data_dir)?;
     println!("Wrote {}", plist.display());
     println!("Load it with:");
     println!("  {}", launchd::bootstrap_command(&plist));
@@ -89,9 +95,12 @@ fn install_agent(plist_dir: Option<PathBuf>) -> Result<(), DaemonError> {
 }
 
 fn main() -> ExitCode {
-    let result = parse(std::env::args_os().skip(1)).and_then(|command| match command {
-        Command::Serve => serve(),
-        Command::InstallAgent { plist_dir } => install_agent(plist_dir),
+    let result = parse(std::env::args_os().skip(1)).and_then(|command| {
+        let paths = Paths::for_profile(Profile::from_env())?;
+        match command {
+            Command::Serve => serve(&paths),
+            Command::InstallAgent { plist_dir } => install_agent(&paths, plist_dir),
+        }
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,

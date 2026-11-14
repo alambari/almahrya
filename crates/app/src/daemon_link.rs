@@ -10,6 +10,7 @@
 use almahrya_client::{Client, ClientError};
 use almahrya_local::LocalError;
 use almahrya_local::paths::{self, Paths};
+use almahrya_local::profile::PROFILE_ENV;
 use almahrya_local::token_store;
 use std::fs::{File, OpenOptions};
 use std::os::unix::process::CommandExt;
@@ -145,7 +146,7 @@ pub async fn ensure_daemon_with(
     options: &LinkOptions,
 ) -> Result<DaemonLink, LinkError> {
     let start = Instant::now();
-    let token = token_store::select()?.get_or_create()?;
+    let token = token_store::select(paths.profile)?.get_or_create()?;
     let client = Client::unix(paths.socket(), token.expose().to_owned());
     match bounded(budget(options, start), client.health()).await {
         Ok(health) => {
@@ -232,9 +233,10 @@ fn spawn(bin: &Path, paths: &Paths) -> Result<Child, LinkError> {
     let stdout = log_file(&paths::stdout_log(&paths.data_dir))?;
     let stderr = log_file(&paths::stderr_log(&paths.data_dir))?;
     Command::new(bin)
-        // The daemon must use exactly the locations the app connects to.
+        // The daemon must use exactly the locations and profile the app connects to.
         .env(paths::DATA_DIR_ENV, &paths.data_dir)
         .env(paths::CONFIG_ENV, &paths.config_file)
+        .env(PROFILE_ENV, paths.profile.env_value())
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr)

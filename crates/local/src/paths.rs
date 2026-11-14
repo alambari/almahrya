@@ -2,6 +2,7 @@
 //! overrides exist for tests and for running a second copy side by side.
 
 use crate::LocalError;
+use crate::profile::Profile;
 use std::ffi::OsString;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
@@ -9,32 +10,46 @@ use std::path::{Path, PathBuf};
 pub const CONFIG_ENV: &str = "ALMAHRYA_CONFIG";
 pub const DATA_DIR_ENV: &str = "ALMAHRYA_DATA_DIR";
 
-fn env_path(name: &str) -> Option<PathBuf> {
+/// Reads one environment variable; tests pass their own lookup instead.
+pub type EnvLookup<'a> = &'a dyn Fn(&str) -> Option<OsString>;
+
+fn process_env(name: &str) -> Option<OsString> {
     std::env::var_os(name)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
+}
+
+fn env_path(env: EnvLookup<'_>, name: &str) -> Option<PathBuf> {
+    env(name).filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+fn home_in(env: EnvLookup<'_>) -> Result<PathBuf, LocalError> {
+    env_path(env, "HOME").ok_or(LocalError::NoHome)
 }
 
 fn home() -> Result<PathBuf, LocalError> {
-    std::env::var_os("HOME")
-        .filter(|v| !v.is_empty())
-        .map(|h: OsString| PathBuf::from(h))
-        .ok_or(LocalError::NoHome)
+    home_in(&process_env)
 }
 
-/// `$ALMAHRYA_CONFIG`, else `~/.config/almahrya/config.toml`.
+/// `$ALMAHRYA_CONFIG`, else `~/.config/almahrya/config.toml`. Both profiles read this one
+/// file; the development profile's differences sit in its `[dev]` table.
 pub fn config_file() -> Result<PathBuf, LocalError> {
-    match env_path(CONFIG_ENV) {
+    config_file_in(&process_env)
+}
+
+fn config_file_in(env: EnvLookup<'_>) -> Result<PathBuf, LocalError> {
+    match env_path(env, CONFIG_ENV) {
         Some(p) => Ok(p),
-        None => Ok(home()?.join(".config/almahrya/config.toml")),
+        None => Ok(home_in(env)?.join(".config/almahrya/config.toml")),
     }
 }
 
-/// `$ALMAHRYA_DATA_DIR`, else `~/Library/Application Support/Almahrya`.
-pub fn data_dir() -> Result<PathBuf, LocalError> {
-    match env_path(DATA_DIR_ENV) {
+/// `$ALMAHRYA_DATA_DIR`, else `~/Library/Application Support/Almahrya` (or `Almahrya-Dev`
+/// for the development profile). The override wins for either profile.
+fn data_dir_in(env: EnvLookup<'_>, profile: Profile) -> Result<PathBuf, LocalError> {
+    match env_path(env, DATA_DIR_ENV) {
         Some(p) => Ok(p),
-        None => Ok(home()?.join("Library/Application Support/Almahrya")),
+        None => Ok(home_in(env)?
+            .join("Library/Application Support")
+            .join(profile.data_dir_name())),
     }
 }
 
@@ -43,14 +58,27 @@ pub fn data_dir() -> Result<PathBuf, LocalError> {
 pub struct Paths {
     pub data_dir: PathBuf,
     pub config_file: PathBuf,
+    pub profile: Profile,
 }
 
 impl Paths {
-    /// The default locations, or the `ALMAHRYA_DATA_DIR` and `ALMAHRYA_CONFIG` overrides.
+    /// The locations of the profile named by `ALMAHRYA_PROFILE`.
     pub fn from_env() -> Result<Paths, LocalError> {
+        Paths::for_profile(Profile::from_env())
+    }
+
+    /// The default locations of `profile`, or the `ALMAHRYA_DATA_DIR` and
+    /// `ALMAHRYA_CONFIG` overrides.
+    pub fn for_profile(profile: Profile) -> Result<Paths, LocalError> {
+        Paths::for_profile_in(profile, &process_env)
+    }
+
+    /// [`Paths::for_profile`] reading variables through `env` instead of the process.
+    pub fn for_profile_in(profile: Profile, env: EnvLookup<'_>) -> Result<Paths, LocalError> {
         Ok(Paths {
-            data_dir: data_dir()?,
-            config_file: config_file()?,
+            data_dir: data_dir_in(env, profile)?,
+            config_file: config_file_in(env)?,
+            profile,
         })
     }
 
