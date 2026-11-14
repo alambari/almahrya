@@ -1,3 +1,7 @@
 /target
 node_modules/
 .DS_Store
+
+# Repo docs for people and agents (overrides a global ignore)
+!AGENTS.md
+!CLAUDE.md
