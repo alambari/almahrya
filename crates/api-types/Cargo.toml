@@ -7,9 +7,11 @@ publish.workspace = true
 [dependencies]
 almahrya-core.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 time.workspace = true
 ts-rs.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true
