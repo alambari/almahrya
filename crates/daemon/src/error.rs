@@ -17,6 +17,10 @@ pub enum DaemonError {
         "the development port would be {base} + 1, past the last port; set [dev] api_port in config.toml"
     )]
     DevPort { base: u16 },
+    #[error(
+        "[dev] api_port is {port}, the production port ([api] port); pick another so both can run"
+    )]
+    DevPortClash { port: u16 },
     #[error("the development profile has no launchd agent; use scripts/dev.sh")]
     NoDevAgent,
     #[error("{context}: {source}")]

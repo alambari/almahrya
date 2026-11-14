@@ -218,6 +218,12 @@ anything else is production.
 | launchd label | none by default (started by `scripts/dev.sh`) | `dev.almahrya.daemon` |
 | Window and menu bar | orange "DEV" ribbon | no ribbon |
 
+- The `[dev]` table is read only under the development profile; production never parses it, so a mistake there
+  cannot stop the production daemon. Supported keys:
+  - `api_port`: the development TCP port. It must differ from `[api] port`.
+
+  Any other key in `[dev]` is ignored with one warning line on stderr.
+
 - Hot reload: GPUI is compiled Rust, so "hot reload" means rebuild and restart on save. `scripts/dev.sh` runs
   `watchexec` over `crates/` and `sidecars/`: a change in the backend crates restarts `almahryad`, a change in
   `ui-kit` or `app` rebuilds and restarts the desktop app. State lives in the daemon (SQLite), so the app reopens on
