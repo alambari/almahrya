@@ -41,6 +41,7 @@ the first client; a React web app is the second, later. The design document is
 |---|---|---|
 | `core` | none | Domain model and pure decisions: permission classification, gate rules, ticket and run state machines, Lark access rule. No IO, no async runtime. Fully unit-tested. |
 | `api-types` | `core` | Every request, response and event type of the API, with serde. TypeScript types are generated from this crate. |
+| `local` | none | Paths, token storage (Keychain, or a file for tests) and token generation, shared by the daemon and the desktop app so the app never depends on the daemon crate. |
 | `store` | `core` | SQLite access and migrations. |
 | `connectors` | `core` | Lark (long connection, messages, Base, contacts) and GitLab (merge requests, discussions) clients. |
 | `runtimes` | `core` | Agent runtime trait; Claude implementation that starts and talks to the sidecar. Codex and ACP later. |

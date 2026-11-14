@@ -50,4 +50,5 @@ Rules for anyone changing Almahrya, people and coding agents alike. Read this, t
 ## Local files you must not read or print
 
 The user's `.env` credential file, `~/.ssh`, `~/.aws`, the Keychain, and anything under the data directory that
-holds tokens. The daemon reads credentials; nothing else does.
+holds tokens. The daemon reads external-service tokens and the database credential file. The desktop app reads only the local API
+token it needs to talk to the daemon. Nothing else reads credentials.
