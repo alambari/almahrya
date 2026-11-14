@@ -1,0 +1,18 @@
+# Throwaway spike: proves GPUI + gpui-component build and render the design tokens on macOS.
+# Outside the main workspace on purpose (empty [workspace] table below).
+[package]
+name = "gpui-window-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# gpui-component 0.9.1 depends on crates.io `gpui-pre` =0.3.12, a snapshot of
+# zed-industries/zed at d2a4fb6ded7c470be25d1541281da3882495b65b. A git dependency
+# on zed would be a different crate and its types would not match, so pin the
+# same snapshot here.
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+gpui-component = "=0.9.1"
