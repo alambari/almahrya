@@ -7,14 +7,14 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-# Every external dependency is declared here with an exact version and used from
-# the crates with `workspace = true`, so one place pins the whole app.
 [workspace.lints.rust]
 unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
 
+# Every external dependency is declared here with an exact version and used from
+# the crates with `workspace = true`, so one place pins the whole app.
 [workspace.dependencies]
 almahrya-core = { path = "crates/core" }
 almahrya-store = { path = "crates/store" }
@@ -50,3 +50,9 @@ security-framework = "=3.7.0"
 hyper = { version = "=1.12.0", features = ["client", "http1"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }
 url = "=2.5.8"
+# GPUI comes from crates.io as `gpui-pre` because gpui-component depends on that exact
+# crate; bump the three lines together (docs/superpowers/spikes/gpui.md). `runtime_shaders`
+# compiles the Metal shaders at runtime, so building needs only the Command Line Tools.
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+gpui-component = "=0.9.1"
