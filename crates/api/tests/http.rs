@@ -17,7 +17,7 @@ fn app() -> (Router, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("a.db")).unwrap();
     let engine = Arc::new(Engine::new(store, DEFAULT_RETENTION));
-    (router(engine, Token::new(TOKEN)), dir)
+    (router(engine, Token::new(TOKEN).unwrap()), dir)
 }
 
 async fn get(app: &Router, uri: &str, token: Option<&str>) -> Response<Body> {
@@ -73,7 +73,7 @@ async fn missing_token_is_rejected() {
 
 #[tokio::test]
 async fn token_debug_is_masked() {
-    assert_eq!(format!("{:?}", Token::new(TOKEN)), "Token(***)");
+    assert_eq!(format!("{:?}", Token::new(TOKEN).unwrap()), "Token(***)");
 }
 
 #[tokio::test]
@@ -108,4 +108,31 @@ async fn malformed_body_is_422_invalid_request() {
             .await
             .contains(r#""code":"invalid_request""#)
     );
+}
+
+#[tokio::test]
+async fn empty_token_is_refused_at_construction() {
+    assert!(Token::new("").is_err());
+}
+
+#[tokio::test]
+async fn whitespace_only_token_is_refused_at_construction() {
+    assert!(Token::new(" \t\n ").is_err());
+}
+
+#[tokio::test]
+async fn empty_bearer_credential_is_unauthorized() {
+    let (app, _dir) = app();
+    let req = Request::get("/v1/sessions")
+        .header(header::AUTHORIZATION, "Bearer ")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(app.clone().oneshot(req).await.unwrap().status(), 401);
+}
+
+#[tokio::test]
+async fn empty_query_token_is_unauthorized() {
+    let (app, _dir) = app();
+    let res = get(&app, "/v1/events?token=", None).await;
+    assert_eq!(res.status(), 401);
 }

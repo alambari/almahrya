@@ -16,7 +16,7 @@ async fn serve() -> (std::net::SocketAddr, Arc<Engine>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("w.db")).unwrap();
     let engine = Arc::new(Engine::new(store, DEFAULT_RETENTION));
-    let app = router(engine.clone(), Token::new(TOKEN));
+    let app = router(engine.clone(), Token::new(TOKEN).unwrap());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

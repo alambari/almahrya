@@ -8,6 +8,6 @@ mod error;
 mod routes;
 mod ws;
 
-pub use auth::Token;
+pub use auth::{Token, TokenError};
 pub use error::ApiFailure;
 pub use routes::router;

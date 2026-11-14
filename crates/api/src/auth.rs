@@ -10,14 +10,28 @@ use subtle::ConstantTimeEq;
 pub struct Token(String);
 
 impl Token {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+    /// Rejects an empty or whitespace-only value; the stored value is trimmed.
+    pub fn new(value: impl AsRef<str>) -> Result<Self, TokenError> {
+        let trimmed = value.as_ref().trim();
+        if trimmed.is_empty() {
+            return Err(TokenError::Empty);
+        }
+        Ok(Self(trimmed.to_owned()))
     }
 
     /// Constant-time comparison against a candidate.
     pub fn matches(&self, candidate: &str) -> bool {
+        if candidate.is_empty() {
+            return false;
+        }
         self.0.as_bytes().ct_eq(candidate.as_bytes()).into()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TokenError {
+    #[error("token must not be empty")]
+    Empty,
 }
 
 impl std::fmt::Debug for Token {
