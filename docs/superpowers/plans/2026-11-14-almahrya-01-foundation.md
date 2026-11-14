@@ -329,8 +329,8 @@ Add `"pid": u32` to the health response in Task 6's handler as part of this task
 - Produces: CI on macOS running `scripts/check.sh`, `scripts/scrub.sh` and `scripts/gpui-boundary.sh` on every push and pull request.
 - `scripts/gpui-boundary.sh` fails when any `Cargo.toml` outside `crates/ui-kit/` (and outside `spikes/`) mentions `gpui`, and when any `.rs` file outside `crates/ui-kit/` (and outside `spikes/`) contains `use gpui`.
 
-- [ ] **Step 1: Write `scripts/scrub.sh`: fails if tracked files match patterns listed in a local, untracked `~/.config/almahrya/scrub-patterns` (one regex per line) plus built-in generic patterns (`-----BEGIN .* PRIVATE KEY-----`, `ghp_[A-Za-z0-9]{20,}`, `xox[bp]-`, `postgres://[^ ]+:[^ ]+@`). In CI only the built-in patterns run.**
-- [ ] **Step 2: Run `scripts/scrub.sh` locally.** Expected: exits 0 on the current tree; exits 1 when a test file containing `ghp_aaaaaaaaaaaaaaaaaaaaaa` is added (remove it after).
+- [ ] **Step 1: Write `scripts/scrub.sh`: fails if tracked files match patterns listed in a local, untracked `~/.config/almahrya/scrub-patterns` (one regex per line) plus built-in generic patterns (private key headers, GitHub tokens, Slack tokens, database URLs with credentials; the exact regexes live in `scripts/scrub.sh`). In CI only the built-in patterns run.**
+- [ ] **Step 2: Run `scripts/scrub.sh` locally.** Expected: exits 0 on the current tree; exits 1 when a test file containing a token-shaped string is added (remove it after).
 - [ ] **Step 3: Add the workflow (macos-latest, stable Rust, cache cargo).**
 - [ ] **Step 4: Commit** `ci: checks and secret scrub for the public repository`
 
