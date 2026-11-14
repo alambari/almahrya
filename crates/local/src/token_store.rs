@@ -66,7 +66,7 @@ fn to_token(value: &str) -> Result<ApiToken, LocalError> {
     Ok(ApiToken(trimmed.to_owned()))
 }
 
-pub trait TokenStore {
+pub trait TokenStore: Send + Sync {
     /// The stored token, or `None` while none exists. Never creates one: the desktop app
     /// reads with this and waits for the daemon to create the token on its first start.
     fn get(&self) -> Result<Option<ApiToken>, LocalError>;

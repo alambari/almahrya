@@ -6,12 +6,18 @@
 //! `/dev/null` and its output goes to the log files in the data directory, the same files
 //! the launchd agent uses. A thread waits on it so it never lingers as a zombie while the
 //! app runs; when the app exits, launchd adopts it.
+//!
+//! The app never creates the API token. The daemon creates it on its first start (it
+//! holds the instance lock, so only one process ever writes it), and `/v1/health` needs
+//! no token, so the app finds or starts the daemon first and reads the token after.
+//! A daemon the app started is never killed for being slow: on a clean Mac its first
+//! Keychain access can wait on a prompt for longer than the start budget.
 
 use almahrya_client::{Client, ClientError};
 use almahrya_local::LocalError;
 use almahrya_local::paths::{self, Paths};
 use almahrya_local::profile::PROFILE_ENV;
-use almahrya_local::token_store;
+use almahrya_local::token_store::{self, ApiToken, TokenStore};
 use std::fs::{File, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -68,8 +74,12 @@ pub enum LinkError {
     },
     #[error("almahryad exited during startup ({status}); see {log}")]
     Exited { status: String, log: PathBuf },
-    #[error("almahryad did not answer within {0:?}")]
-    Timeout(Duration),
+    #[error("almahryad is still starting (it may be waiting for a Keychain prompt); see {log}")]
+    StillStarting { log: PathBuf },
+    #[error(
+        "almahryad is running but no API token is stored yet; it creates one on its first start"
+    )]
+    NoToken,
     #[error(
         "almahryad accepts connections but is not answering; see {log}, or stop it so the app can start a new one"
     )]
@@ -140,26 +150,55 @@ fn budget(options: &LinkOptions, start: Instant) -> Duration {
         .max(Duration::from_millis(1))
 }
 
-/// [`ensure_daemon`] with explicit limits. Returns within about `start_timeout`.
+/// [`ensure_daemon`] with explicit limits. Returns within about `start_timeout`, unless
+/// reading the token waits on a Keychain prompt.
 pub async fn ensure_daemon_with(
     paths: &Paths,
     options: &LinkOptions,
 ) -> Result<DaemonLink, LinkError> {
     let start = Instant::now();
-    let token = token_store::select(paths.profile)?.get_or_create()?;
-    let client = Client::unix(paths.socket(), token.expose().to_owned());
-    match bounded(budget(options, start), client.health()).await {
-        Ok(health) => {
-            return Ok(DaemonLink {
-                client,
-                pid: health.pid,
-                spawned: false,
-            });
+    let store = token_store::select(paths.profile)?;
+    // Health needs no token, so this client only finds the daemon.
+    let probe = Client::unix(paths.socket(), String::new());
+    let (pid, spawned) = find_or_start(&probe, paths, options, start).await?;
+    let token = wait_for_token(store.as_ref(), start + options.start_timeout).await?;
+    Ok(DaemonLink {
+        client: Client::unix(paths.socket(), token.expose().to_owned()),
+        pid,
+        spawned,
+    })
+}
+
+/// Reads the token, trying again until `deadline` while it does not exist yet. Never
+/// creates it: that is the daemon's job on its first start.
+pub async fn wait_for_token(
+    store: &dyn TokenStore,
+    deadline: Instant,
+) -> Result<ApiToken, LinkError> {
+    loop {
+        if let Some(token) = store.get()? {
+            return Ok(token);
         }
+        if Instant::now() >= deadline {
+            return Err(LinkError::NoToken);
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+/// The pid of the daemon that answered `/v1/health`, and whether this call started it.
+async fn find_or_start(
+    probe: &Client,
+    paths: &Paths,
+    options: &LinkOptions,
+    start: Instant,
+) -> Result<(u32, bool), LinkError> {
+    match bounded(budget(options, start), probe.health()).await {
+        Ok(health) => return Ok((health.pid, false)),
         // Something holds the socket but does not answer. Starting another daemon would
         // only fail on the instance lock, so wait for this one instead.
         Err(RequestError::TimedOut(_)) => {
-            return wait_for_silent(client, paths, options, start).await;
+            return wait_for_silent(probe, paths, options, start).await;
         }
         // Nothing listens (no socket, or a stale one): start a daemon.
         Err(RequestError::Client(_)) => {}
@@ -169,13 +208,9 @@ pub async fn ensure_daemon_with(
     let mut child_running = true;
     loop {
         // Until the timeout, any failure means "not listening yet".
-        if let Ok(health) = bounded(budget(options, start), client.health()).await {
+        if let Ok(health) = bounded(budget(options, start), probe.health()).await {
             reap(child);
-            return Ok(DaemonLink {
-                client,
-                pid: health.pid,
-                spawned: true,
-            });
+            return Ok((health.pid, true));
         }
         if child_running && let Ok(Some(status)) = child.try_wait() {
             if status.code() != Some(ALREADY_RUNNING) {
@@ -184,13 +219,17 @@ pub async fn ensure_daemon_with(
                     log: paths::stderr_log(&paths.data_dir),
                 });
             }
+            // Another start won the race; keep polling the one that holds the lock.
             child_running = false;
         }
         if start.elapsed() >= options.start_timeout {
-            // Ours and not answering: do not leave it behind.
-            let _ = child.kill();
+            // Ours and still running (it may be waiting on a Keychain prompt), or another
+            // daemon holds the instance lock (ours exited 3). Either way a daemon is
+            // starting: leave it be, and let the caller try again and find it.
             reap(child);
-            return Err(LinkError::Timeout(options.start_timeout));
+            return Err(LinkError::StillStarting {
+                log: paths::stderr_log(&paths.data_dir),
+            });
         }
         tokio::time::sleep(POLL).await;
     }
@@ -198,11 +237,11 @@ pub async fn ensure_daemon_with(
 
 /// Keeps asking a daemon that accepts but does not answer, until the start budget ends.
 async fn wait_for_silent(
-    client: Client,
+    probe: &Client,
     paths: &Paths,
     options: &LinkOptions,
     start: Instant,
-) -> Result<DaemonLink, LinkError> {
+) -> Result<(u32, bool), LinkError> {
     loop {
         if start.elapsed() >= options.start_timeout {
             return Err(LinkError::NotResponding {
@@ -210,12 +249,8 @@ async fn wait_for_silent(
             });
         }
         tokio::time::sleep(POLL).await;
-        if let Ok(health) = bounded(budget(options, start), client.health()).await {
-            return Ok(DaemonLink {
-                client,
-                pid: health.pid,
-                spawned: false,
-            });
+        if let Ok(health) = bounded(budget(options, start), probe.health()).await {
+            return Ok((health.pid, false));
         }
     }
 }

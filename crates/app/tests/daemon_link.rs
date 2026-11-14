@@ -4,9 +4,12 @@
 //! of a running process is `unsafe`. The test therefore runs itself again as a child
 //! process with the variables set, and does the real work there.
 
-use almahrya_app::daemon_link::{LinkError, LinkOptions, ensure_daemon, ensure_daemon_with};
+use almahrya_app::daemon_link::{
+    LinkError, LinkOptions, ensure_daemon, ensure_daemon_with, wait_for_token,
+};
 use almahrya_local::paths::Paths;
 use almahrya_local::profile::Profile;
+use almahrya_local::token_store::{FileTokenStore, TokenStore};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -59,7 +62,11 @@ fn free_port() -> u16 {
 /// The part that runs in the child, with the environment prepared by the parent.
 async fn scenario() {
     let paths = Paths::from_env().unwrap();
+    let token_file = PathBuf::from(std::env::var_os("ALMAHRYA_TOKEN_FILE").unwrap());
+    assert!(!token_file.exists());
     let first = ensure_daemon(&paths).await.unwrap();
+    // The daemon created the token on its first start; the app only read it.
+    assert!(token_file.exists());
     println!("daemon-pid={}", first.pid());
     assert!(first.spawned(), "no daemon ran yet, so one must be started");
     first.client().list_sessions().await.unwrap();
@@ -215,6 +222,99 @@ async fn silent_daemon_scenario() {
         other => panic!("expected NotResponding, got {other:?}"),
     }
     assert!(elapsed < Duration::from_secs(2), "took {elapsed:?}");
+    // Only the daemon creates the token; the app never does.
+    let token_file = PathBuf::from(std::env::var_os("ALMAHRYA_TOKEN_FILE").unwrap());
+    assert!(!token_file.exists(), "the app created the token");
+}
+
+/// A daemon that is still starting when the start budget ends (for example, waiting on
+/// a Keychain prompt) is left running; the app reports it and tries again later.
+#[tokio::test]
+async fn ensure_daemon_leaves_a_slow_starting_daemon_running() {
+    if std::env::var_os(CHILD_ENV).is_some() {
+        slow_daemon_scenario().await;
+        return;
+    }
+    let env = ChildEnv::new();
+    let pid_file = env.dir.path().join("pid");
+    let fake_bin = env.dir.path().join("slow-almahryad");
+    std::fs::write(
+        &fake_bin,
+        format!(
+            "#!/bin/sh\necho $$ > '{}'\nexec sleep 30\n",
+            pid_file.display()
+        ),
+    )
+    .unwrap();
+    Command::new("chmod")
+        .arg("755")
+        .arg(&fake_bin)
+        .status()
+        .unwrap();
+
+    let output = env.run(
+        "ensure_daemon_leaves_a_slow_starting_daemon_running",
+        &fake_bin,
+    );
+    let pid = std::fs::read_to_string(&pid_file).unwrap_or_default();
+    let pid = pid.trim();
+    let alive = !pid.is_empty()
+        && Command::new("kill")
+            .args(["-0", pid])
+            .status()
+            .unwrap()
+            .success();
+    if !pid.is_empty() {
+        let _ = Command::new("kill").args(["-KILL", pid]).status();
+    }
+    assert_child_ok(&output);
+    assert!(!pid.is_empty(), "the fake daemon never started");
+    assert!(alive, "the app killed a daemon that was still starting");
+}
+
+async fn slow_daemon_scenario() {
+    let paths = Paths::from_env().unwrap();
+    let options = LinkOptions {
+        start_timeout: Duration::from_millis(500),
+        request_timeout: Duration::from_millis(150),
+    };
+    let result = tokio::time::timeout(Duration::from_secs(3), ensure_daemon_with(&paths, &options))
+        .await
+        .expect("ensure_daemon_with hung");
+    match result {
+        Err(LinkError::StillStarting { log }) => {
+            assert!(log.starts_with(&paths.data_dir), "{}", log.display());
+        }
+        other => panic!("expected StillStarting, got {other:?}"),
+    }
+}
+
+/// The token appears after the daemon answers (it is created on the daemon's first
+/// start); the app waits for it within the budget instead of creating one.
+#[tokio::test]
+async fn wait_for_token_waits_for_the_daemon_to_create_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("token");
+    let store = FileTokenStore { path: path.clone() };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let writer = std::thread::spawn({
+        let path = path.clone();
+        move || {
+            std::thread::sleep(Duration::from_millis(200));
+            FileTokenStore { path }.get_or_create().unwrap()
+        }
+    });
+    let token = wait_for_token(&store, deadline).await.unwrap();
+    let created = writer.join().unwrap();
+    assert_eq!(token.expose(), created.expose());
+
+    let empty = FileTokenStore {
+        path: dir.path().join("never"),
+    };
+    let start = Instant::now();
+    let result = wait_for_token(&empty, start + Duration::from_millis(300)).await;
+    assert!(matches!(result, Err(LinkError::NoToken)), "{result:?}");
+    assert!(!dir.path().join("never").exists());
 }
 
 const DEV_PORT_ENV: &str = "ALMAHRYA_TEST_DEV_PORT";
