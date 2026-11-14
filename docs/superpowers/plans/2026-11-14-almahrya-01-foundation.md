@@ -355,3 +355,29 @@ Add `"pid": u32` to the health response in Task 6's handler as part of this task
 - [ ] **Step 4: Run the tests, then `cargo run -p almahrya-ui-kit --example gallery -- --screenshot docs/superpowers/gallery/baseline/gallery-dark.png`. Expected: PNG written; open it and compare with DESIGN.md.**
 - [ ] **Step 5: Document in `docs/superpowers/gallery/README.md` how to regenerate screenshots for an upgrade pull request.**
 - [ ] **Step 6: Commit** `feat(ui-kit): component gallery and baseline screenshots`
+
+### Task 12: Development profile with rebuild-on-save
+
+**Files:**
+- Modify: `crates/daemon/src/{paths.rs,config.rs,token_store.rs}`, `crates/app/src/daemon_link.rs`
+- Create: `crates/daemon/tests/profile.rs`, `scripts/dev.sh`
+- Modify: `crates/ui-kit/src/lib.rs` (a `DevRibbon` component), `crates/app/src/main.rs`
+
+**Interfaces:**
+- Consumes: `Config`, `Paths`, `TokenStore` (Task 7), `ensure_daemon` (Task 9)
+- Produces:
+  - `enum Profile { Production, Dev }` with `Profile::from_env() -> Profile` (reads `ALMAHRYA_PROFILE`; the value `dev` selects `Dev`, anything else `Production`)
+  - `Paths::for_profile(profile: Profile) -> Paths`: data dir `Almahrya-Dev` for dev; Keychain service `almahrya-dev` for dev; TCP port `api_port + 1` for dev unless `[dev] api_port` is set; `[dev]` table in `config.toml` overrides base keys
+  - the daemon and `app` both call `Profile::from_env()` so they always agree
+  - `ui_kit::DevRibbon::new() -> impl IntoElement`: an orange `#E8A93C`-on-dark ribbon reading "DEV", shown by `app` only when `Profile::Dev`
+  - `scripts/dev.sh`: requires `watchexec`; prints an install hint (`brew install watchexec`) if missing; sets `ALMAHRYA_PROFILE=dev`; restarts `almahryad` when files under `crates/{core,api-types,store,connectors,runtimes,readpath,engine,api,daemon}` or `sidecars/` change; rebuilds and restarts the desktop app when files under `crates/{ui-kit,app,client}` change
+
+- [ ] **Step 1: Write failing tests** in `crates/daemon/tests/profile.rs`:
+  - `dev_profile_uses_separate_data_dir_port_and_keychain_service` (asserts the three differ from production)
+  - `dev_and_production_daemons_run_side_by_side` (start both with temp dirs and a fixed base port; both answer `/v1/health`; neither's data dir contains the other's database)
+  - `profile_env_other_than_dev_is_production` (`ALMAHRYA_PROFILE=staging` → `Production`)
+- [ ] **Step 2: Run `cargo test -p almahrya-daemon profile`.** Expected: FAIL.
+- [ ] **Step 3: Implement `Profile` and `Paths::for_profile`; wire both binaries; add `DevRibbon`; write `scripts/dev.sh`.**
+- [ ] **Step 4: Run the tests, then `scripts/dev.sh`: edit a string in `crates/app/src/main.rs`, save, confirm the app restarts within about 5 s on the same screen; stop the script with Ctrl-C and confirm no `almahryad` or app process remains.**
+- [ ] **Step 5: Commit** `feat: development profile with rebuild-on-save`
+

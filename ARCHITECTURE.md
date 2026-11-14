@@ -201,3 +201,28 @@ GPUI is pre-1.0 and changes without notice, so upgrades are planned, small and c
   5. Merge only when tests pass and the gallery looks the same or better.
 - Fonts are embedded in the app, not read from the user's font folder.
 - The window surface is tagged Display P3; saturated colours are checked in the gallery.
+
+## Development and production
+
+Two profiles run side by side on one Mac without touching each other. `ALMAHRYA_PROFILE=dev` selects the dev profile;
+anything else is production.
+
+| | Development | Production |
+|---|---|---|
+| Data directory | `~/Library/Application Support/Almahrya-Dev/` | `~/Library/Application Support/Almahrya/` |
+| Config | `~/.config/almahrya/config.toml` with an optional `[dev]` table overriding keys | same file, base keys |
+| Unix socket | `<data dir>/almahryad.sock` (inside the dev data dir) | inside the production data dir |
+| TCP port | `api_port + 1` unless `[dev] api_port` is set | `api_port` |
+| Keychain | service `almahrya-dev` | service `almahrya` |
+| launchd label | none by default (started by `scripts/dev.sh`) | `dev.almahrya.daemon` |
+| Window and menu bar | orange "DEV" ribbon | no ribbon |
+
+- Hot reload: GPUI is compiled Rust, so "hot reload" means rebuild and restart on save. `scripts/dev.sh` runs
+  `watchexec` over `crates/` and `sidecars/`: a change in the backend crates restarts `almahryad`, a change in
+  `ui-kit` or `app` rebuilds and restarts the desktop app. State lives in the daemon (SQLite), so the app reopens on
+  the same screen, and the event stream resumes from the last sequence number. Incremental rebuilds take about 3 s.
+- Web: the React app uses Vite's hot module reload against the dev daemon.
+- Lark and GitLab are allowed in dev with the owner's real accounts. Only one daemon holds the Lark long connection at
+  a time: if production holds it, dev skips connecting and Settings says so. When dev holds it, bot replies start with
+  `[dev]`. This avoids answering one mention twice.
+
