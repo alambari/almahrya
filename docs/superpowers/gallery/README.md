@@ -10,7 +10,10 @@ cargo run -p almahrya-ui-kit --example gallery
 ```
 
 The window is 1440 x 900. Close it or press Cmd-Q to quit. The sample text lives in
-`crates/ui-kit/examples/gallery.rs`; components themselves never hard-code user-facing text.
+`crates/ui-kit/examples/gallery.rs`. The new components (label, status bar, decision card, toggle, chip, list card)
+take all their text from the caller, and `crates/ui-kit/tests/gallery.rs` checks that their source holds no
+user-facing string. The sidebar is a known exception: it still has its own English strings, and will be converted
+when its text moves into the localisation work.
 
 ## Take a screenshot
 
@@ -65,4 +68,5 @@ A new component goes in `crates/ui-kit/src/components/`, one file per component,
 
 - gpui-component widgets (the sidebar's "New chat session" button) read one app-wide theme. The gallery applies the
   first column's palette to them, so in the light column that button still uses the dark `agent` colour.
+- The sidebar hard-codes its English text (see above).
 - The toggle's off colour `#3A3A40` is the single value DESIGN.md gives; it is used in both palettes.

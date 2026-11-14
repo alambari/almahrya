@@ -39,8 +39,8 @@ fn gallery_components_render_without_panicking() {
             ],
         )
         .label(),
-        Toggle::new(true).label(),
-        Toggle::new(false).label(),
+        Toggle::new(true).labelled("Run tests on save").label(),
+        Toggle::new(false).labelled("Push without review").label(),
         Chip::new("PROJ-123", false).label(),
         Chip::new("example-api", true).label(),
         ListCard::new(vec![
@@ -76,4 +76,81 @@ fn labels_carry_the_caller_text() {
 fn light_and_dark_themes_differ() {
     assert_ne!(Theme::dark().bg, Theme::light().bg);
     assert_ne!(Theme::dark().text, Theme::light().text);
+}
+
+#[test]
+fn toggle_text_comes_only_from_the_caller() {
+    assert_eq!(Toggle::new(true).label(), "");
+    assert_eq!(Toggle::new(false).label(), "");
+    assert_eq!(Toggle::new(true).labelled("Run tests").label(), "Run tests");
+    let named = |on| {
+        Toggle::new(on)
+            .labelled("Jalankan tes")
+            .states("Aktif", "Mati")
+    };
+    assert_eq!(named(true).label(), "Jalankan tes. Aktif");
+    assert_eq!(named(false).label(), "Jalankan tes. Mati");
+}
+
+/// Components take every user-facing word from the caller, so their non-test source holds
+/// no string literal with a letter in it. The sidebar predates this rule and is a recorded
+/// exception until its text moves into the localisation work.
+#[test]
+fn components_hold_no_user_facing_literals() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/components");
+    let mut checked = 0;
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("components directory") {
+        let path = entry.expect("directory entry").path();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        if !name.ends_with(".rs") || name == "sidebar.rs" {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("component source");
+        let code = source.split("#[cfg(test)]").next().unwrap_or_default();
+        for (line_no, line) in code.lines().enumerate() {
+            let line = line.split("//").next().unwrap_or_default();
+            for literal in string_literals(line) {
+                if literal.chars().any(char::is_alphabetic) {
+                    found.push(format!("{name}:{}: \"{literal}\"", line_no + 1));
+                }
+            }
+        }
+        checked += 1;
+    }
+    assert!(
+        checked >= 6,
+        "expected the component files, checked {checked}"
+    );
+    assert!(
+        found.is_empty(),
+        "user-facing literals in components: {found:?}"
+    );
+}
+
+/// The contents of the double-quoted literals on one line (escapes are skipped over).
+fn string_literals(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            continue;
+        }
+        let mut literal = String::new();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => {
+                    chars.next();
+                }
+                '"' => break,
+                c => literal.push(c),
+            }
+        }
+        out.push(literal);
+    }
+    out
 }

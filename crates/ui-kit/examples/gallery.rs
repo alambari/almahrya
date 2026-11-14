@@ -99,8 +99,12 @@ fn sample() -> Gallery {
                 "Toggle and chip",
                 vec![
                     GalleryItem::Toggles(vec![
-                        Toggle::new(true).labelled("Run tests on save"),
-                        Toggle::new(false).labelled("Push without review"),
+                        Toggle::new(true)
+                            .labelled("Run tests on save")
+                            .states("On", "Off"),
+                        Toggle::new(false)
+                            .labelled("Push without review")
+                            .states("On", "Off"),
                     ]),
                     GalleryItem::Chips(vec![
                         Chip::new("PROJ-123", false),

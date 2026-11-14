@@ -1,14 +1,17 @@
 //! The toggle: an on/off switch, 38 x 22 px.
 
+use super::label::join_label;
 use crate::theme::Theme;
 use gpui::{IntoElement, ParentElement, Styled, div, prelude::*, px, rgb};
 
-/// A toggle. The caller may name what it switches; without a name the label falls back
-/// to the state, so assistive technology always has something to read.
+/// A toggle. Every word it reads out comes from the caller: the name of what it switches
+/// and, optionally, the words for its two states. Without them its label is empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toggle {
     on: bool,
     label: String,
+    on_word: String,
+    off_word: String,
 }
 
 /// Track size from DESIGN.md, in px.
@@ -27,6 +30,8 @@ impl Toggle {
         Toggle {
             on,
             label: String::new(),
+            on_word: String::new(),
+            off_word: String::new(),
         }
     }
 
@@ -36,18 +41,28 @@ impl Toggle {
         self
     }
 
+    /// The words for the on and off states, in the caller's language; the current one
+    /// follows the name in the label.
+    pub fn states(mut self, on: &str, off: &str) -> Self {
+        self.on_word = on.to_owned();
+        self.off_word = off.to_owned();
+        self
+    }
+
     /// Whether the toggle is on.
     pub fn is_on(&self) -> bool {
         self.on
     }
 
-    /// The caller's name for the toggle, or its state when it has none.
+    /// What assistive technology reads: the caller's name, then the caller's word for
+    /// the current state. Empty when the caller gave neither.
     pub fn label(&self) -> String {
-        if self.label.trim().is_empty() {
-            if self.on { "on" } else { "off" }.to_owned()
+        let state = if self.on {
+            &self.on_word
         } else {
-            self.label.clone()
-        }
+            &self.off_word
+        };
+        join_label([self.label.as_str(), state.as_str()])
     }
 
     pub(crate) fn render(&self, theme: &Theme) -> impl IntoElement + use<> {
@@ -78,10 +93,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn label_falls_back_to_the_state() {
-        assert_eq!(Toggle::new(true).label(), "on");
-        assert_eq!(Toggle::new(false).label(), "off");
+    fn label_uses_only_caller_words() {
+        assert_eq!(Toggle::new(true).label(), "");
         assert_eq!(Toggle::new(false).labelled("Notify").label(), "Notify");
+        assert_eq!(Toggle::new(true).states("Aktif", "Mati").label(), "Aktif");
     }
 
     #[test]
