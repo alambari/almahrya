@@ -147,6 +147,19 @@ case "$OUTPUT" in *install-agent*|*launchctl*) bad "dev.sh must not touch the la
 run_dev /usr/bin:/bin --bogus
 expect "dev.sh rejects an unknown argument" 2
 
+dev_dir="$SCRATCH/Library/Application Support/Almahrya-Dev"
+run_dev /usr/bin:/bin --print
+case "$OUTPUT" in *"ALMAHRYA_TOKEN_FILE=$dev_dir/api-token"*) ok "dev.sh keeps the token in the dev data dir" ;; *) bad "dev.sh keeps the token in the dev data dir: $OUTPUT" ;; esac
+if [ -e "$dev_dir" ]; then bad "dev.sh --print must not create the dev data dir"; else ok "dev.sh --print creates nothing"; fi
+
+# An inherited override could point the dev profile at production state.
+for var in ALMAHRYA_DATA_DIR ALMAHRYA_CONFIG ALMAHRYA_TOKEN_FILE; do
+  STATUS=0
+  OUTPUT="$(env -i "HOME=$SCRATCH" "PATH=/usr/bin:/bin" "$var=$SCRATCH/elsewhere" /bin/bash "$SCRIPTS/dev.sh" --print 2>&1)" || STATUS=$?
+  expect "dev.sh refuses an inherited $var" 1
+  case "$OUTPUT" in *"$var"*) ok "dev.sh names $var" ;; *) bad "dev.sh names $var: $OUTPUT" ;; esac
+done
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

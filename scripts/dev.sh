@@ -4,8 +4,14 @@
 # desktop crates rebuilds and restarts the app. Ctrl-C stops both loops and everything
 # they started.
 #
-# The development profile has its own data directory, port and Keychain item, so this
-# never touches production data or the production launchd agent.
+# The development profile has its own data directory and port, so this never touches
+# production data or the production launchd agent. The dev API token lives in a file in
+# the dev data directory (ALMAHRYA_TOKEN_FILE, mode 0600, directory 0700), so neither loop
+# ever reads or writes the Keychain. The daemon creates the token on its first start; the
+# app only reads it.
+#
+# It refuses to start when ALMAHRYA_DATA_DIR, ALMAHRYA_CONFIG or ALMAHRYA_TOKEN_FILE is
+# already set: an inherited override could point the dev profile at production state.
 #
 #   scripts/dev.sh           run the loops (needs watchexec)
 #   scripts/dev.sh --print   print the commands it would run, then exit
@@ -33,6 +39,18 @@ if [ "$#" -gt 1 ]; then
   exit 2
 fi
 
+for var in ALMAHRYA_DATA_DIR ALMAHRYA_CONFIG ALMAHRYA_TOKEN_FILE; do
+  if [ -n "${!var+x}" ]; then
+    echo "dev.sh: $var is set in the environment; unset it first, so the development" >&2
+    echo "profile cannot open another profile's files." >&2
+    exit 1
+  fi
+done
+if [ -z "${HOME:-}" ]; then
+  echo "dev.sh: HOME is not set" >&2
+  exit 1
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -40,6 +58,9 @@ if ! command -v cargo >/dev/null 2>&1; then
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 export ALMAHRYA_PROFILE=dev
+# The default dev data directory (no ALMAHRYA_DATA_DIR, checked above), and the token in it.
+DEV_DATA_DIR="$HOME/Library/Application Support/Almahrya-Dev"
+export ALMAHRYA_TOKEN_FILE="$DEV_DATA_DIR/api-token"
 
 # Watch only directories that exist; watchexec refuses a missing path.
 watch_args() {
@@ -71,6 +92,7 @@ APP_CMD=(watchexec "${COMMON[@]}" "${APP_WATCH[@]}" --
 
 if [ "$PRINT" -eq 1 ]; then
   echo "ALMAHRYA_PROFILE=$ALMAHRYA_PROFILE"
+  echo "ALMAHRYA_TOKEN_FILE=$ALMAHRYA_TOKEN_FILE"
   printf 'backend:'
   printf ' %q' "${BACKEND_CMD[@]}"
   printf '\napp: ALMAHRYA_DAEMON_BIN=<stub that exits 3>'
@@ -83,6 +105,13 @@ if ! command -v watchexec >/dev/null 2>&1; then
   echo "dev.sh needs watchexec. Install it with:" >&2
   echo "  brew install watchexec" >&2
   exit 1
+fi
+
+# Owner-only, like the daemon makes it; an existing token file stays private too.
+mkdir -p "$DEV_DATA_DIR"
+chmod 700 "$DEV_DATA_DIR"
+if [ -e "$ALMAHRYA_TOKEN_FILE" ]; then
+  chmod 600 "$ALMAHRYA_TOKEN_FILE"
 fi
 
 # The app starts a daemon itself when none answers. Here the backend loop owns the
