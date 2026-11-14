@@ -1,5 +1,7 @@
 //! Thin transport helpers: serve a router on a Unix socket or a TCP address until a
-//! shutdown future resolves, then drain in-flight requests (axum graceful shutdown).
+//! shutdown future resolves, then drain in-flight HTTP requests (axum graceful shutdown).
+//! WebSocket connections are not drained: an upgraded connection is no longer tracked by
+//! the server, so it ends only when the daemon's runtime stops (the caller's grace period).
 
 use axum::Router;
 use std::future::Future;
