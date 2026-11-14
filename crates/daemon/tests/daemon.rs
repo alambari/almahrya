@@ -41,6 +41,12 @@ impl Env {
 
     fn command(&self) -> Command {
         let mut cmd = Command::new(BIN);
+        // A shell that set ALMAHRYA_PROFILE or another override must not change the test.
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("ALMAHRYA_") {
+                cmd.env_remove(name);
+            }
+        }
         cmd.env("ALMAHRYA_CONFIG", self.dir.path().join("config.toml"))
             .env("ALMAHRYA_DATA_DIR", self.data_dir())
             .env("ALMAHRYA_TOKEN_FILE", self.dir.path().join("token"))

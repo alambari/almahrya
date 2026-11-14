@@ -105,8 +105,14 @@ impl ChildEnv {
 
     /// [`ChildEnv::run`] with extra variables.
     fn run_with(&self, test: &str, daemon_bin: &Path, extra: &[(&str, String)]) -> Output {
-        Command::new(std::env::current_exe().unwrap())
-            .envs(extra.iter().map(|(k, v)| (*k, v.as_str())))
+        let mut cmd = Command::new(std::env::current_exe().unwrap());
+        // A shell that set ALMAHRYA_PROFILE or another override must not change the test.
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("ALMAHRYA_") {
+                cmd.env_remove(name);
+            }
+        }
+        cmd.envs(extra.iter().map(|(k, v)| (*k, v.as_str())))
             .args(["--exact", test, "--nocapture", "--test-threads=1"])
             .env(CHILD_ENV, "1")
             .env("ALMAHRYA_DAEMON_BIN", daemon_bin)
