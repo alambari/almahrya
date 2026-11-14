@@ -6,6 +6,7 @@
 mod auth;
 mod error;
 mod routes;
+pub mod serve;
 mod ws;
 
 pub use auth::{Token, TokenError};
