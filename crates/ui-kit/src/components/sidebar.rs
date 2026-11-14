@@ -1,4 +1,4 @@
-//! The window's left column: the new-session button and the session list.
+//! The sidebar: the window's left column with the new-session button and the session list.
 
 use crate::theme::Theme;
 use gpui::{

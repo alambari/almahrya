@@ -1,7 +1,7 @@
 //! The application entry point and the sessions window.
 
+use crate::components::sidebar::{ConnectionStatus, SessionItem, Sidebar};
 use crate::fonts;
-use crate::sidebar::{ConnectionStatus, SessionItem, Sidebar};
 use crate::theme::{self, Theme};
 use futures_util::{Stream, StreamExt};
 use gpui::{

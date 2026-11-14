@@ -4,11 +4,20 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# Renders the gallery window to a PNG. It needs GPUI's test support, so the app never
+# turns it on; the gallery example gets it through the dev-dependency below.
+screenshot = ["gpui/test-support", "gpui_platform/test-support"]
+
 [dependencies]
 futures-util.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+almahrya-ui-kit = { workspace = true, features = ["screenshot"] }
 
 [lints]
 workspace = true
