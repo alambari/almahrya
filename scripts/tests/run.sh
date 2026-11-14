@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/scrub.sh and scripts/gpui-boundary.sh. Each case builds a
+# Tests for scripts/scrub.sh, scripts/gpui-boundary.sh and scripts/dev.sh. Each case builds a
 # throwaway git repository and runs the scripts with it as the working directory.
 # Fixture secrets are assembled from fragments at runtime so this file never
 # contains a token-shaped string itself.
@@ -124,6 +124,28 @@ expect "boundary fails on a path use" 1
 printf 'use %s_component::Button;\n' "$gp" >"$REPO/crates/app/src/main.rs"
 run_in gpui-boundary.sh
 expect "boundary fails on the component crate" 1
+
+# --- dev.sh -----------------------------------------------------------------
+# Runs against the real checkout; neither case starts a process. HOME points at the
+# scratch dir so a watchexec under ~/.cargo/bin cannot be found.
+run_dev() {
+  STATUS=0
+  OUTPUT="$(env -i "HOME=$SCRATCH" "PATH=$1" /bin/bash "$SCRIPTS/dev.sh" "${@:2}" 2>&1)" || STATUS=$?
+}
+
+run_dev /usr/bin:/bin
+expect "dev.sh refuses without watchexec" 1
+case "$OUTPUT" in *"brew install watchexec"*) ok "dev.sh prints the install hint" ;; *) bad "dev.sh prints the install hint: $OUTPUT" ;; esac
+
+run_dev /usr/bin:/bin --print
+expect "dev.sh --print exits 0 without watchexec" 0
+case "$OUTPUT" in *ALMAHRYA_PROFILE=dev*) ok "dev.sh selects the dev profile" ;; *) bad "dev.sh selects the dev profile: $OUTPUT" ;; esac
+case "$OUTPUT" in *"-p almahrya-daemon"*"-p almahrya-app"*) ok "dev.sh runs the daemon and the app" ;; *) bad "dev.sh runs the daemon and the app: $OUTPUT" ;; esac
+case "$OUTPUT" in *"--watch crates/daemon"*"--watch crates/app"*) ok "dev.sh watches backend and app crates" ;; *) bad "dev.sh watches backend and app crates: $OUTPUT" ;; esac
+case "$OUTPUT" in *install-agent*|*launchctl*) bad "dev.sh must not touch the launchd agent" ;; *) ok "dev.sh leaves the launchd agent alone" ;; esac
+
+run_dev /usr/bin:/bin --bogus
+expect "dev.sh rejects an unknown argument" 2
 
 echo
 echo "$PASS passed, $FAIL failed"
