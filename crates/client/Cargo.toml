@@ -6,6 +6,24 @@ publish.workspace = true
 
 [dependencies]
 almahrya-api-types.workspace = true
+async-stream.workspace = true
+futures-util.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+almahrya-api.workspace = true
+almahrya-core.workspace = true
+almahrya-engine.workspace = true
+almahrya-store.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
