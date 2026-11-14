@@ -37,6 +37,16 @@ fn free_port_pair() -> u16 {
     panic!("no free port pair");
 }
 
+/// Drops every inherited `ALMAHRYA_*` variable, so a shell that set one (for example
+/// `ALMAHRYA_PROFILE=dev`) cannot change what the test runs.
+fn clear_almahrya_env(cmd: &mut Command) {
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("ALMAHRYA_") {
+            cmd.env_remove(name);
+        }
+    }
+}
+
 /// One config file shared by both profiles, and a data dir and token file per profile.
 struct Env {
     dir: tempfile::TempDir,
@@ -61,6 +71,7 @@ impl Env {
 
     fn command(&self, profile: &str) -> Command {
         let mut cmd = Command::new(BIN);
+        clear_almahrya_env(&mut cmd);
         cmd.env("ALMAHRYA_PROFILE", profile)
             // Nothing may fall back to the real home directory.
             .env("HOME", self.dir.path())
@@ -176,17 +187,47 @@ fn dev_and_production_daemons_run_side_by_side() {
     assert_eq!(pid_in(&dev_tcp), dev_pid);
     assert_eq!(pid_in(&dev_unix), dev_pid);
 
-    for (own, other) in [("production", "dev"), ("dev", "production")] {
-        assert!(env.data_dir(own).join("almahrya.db").exists());
-        let entries: Vec<_> = std::fs::read_dir(env.data_dir(own))
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect();
+    // Each daemon keeps its database and socket inside its own directory, and neither
+    // directory holds the other's files: the two are separate, not nested.
+    let (prod_dir, dev_dir) = (env.data_dir("production"), env.data_dir("dev"));
+    assert!(!prod_dir.starts_with(&dev_dir) && !dev_dir.starts_with(&prod_dir));
+    for (own, own_pid, other_pid) in [
+        (&prod_dir, &prod_pid, &dev_pid),
+        (&dev_dir, &dev_pid, &prod_pid),
+    ] {
+        assert!(own.join("almahrya.db").is_file(), "{}", own.display());
+        let socket = own.join("almahryad.sock");
+        let reply = unix_health(&socket).unwrap();
+        assert_eq!(&pid_in(&reply), own_pid, "{}", socket.display());
+        assert_ne!(&pid_in(&reply), other_pid);
+        let names = file_names(own);
         assert!(
-            entries.iter().all(|p| !p.starts_with(env.data_dir(other))),
-            "{own} data dir holds files of {other}: {entries:?}"
+            names.iter().all(|n| n.starts_with("almahrya")),
+            "{} holds unexpected files: {names:?}",
+            own.display()
         );
     }
+    // Nothing was written next to the two directories except the shared config, the token
+    // files and the directories themselves.
+    let mut top = file_names(env.dir.path());
+    top.sort();
+    assert_eq!(
+        top,
+        [
+            "config.toml",
+            "dev",
+            "dev.token",
+            "production",
+            "production.token"
+        ]
+    );
+}
+
+fn file_names(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect()
 }
 
 #[test]
