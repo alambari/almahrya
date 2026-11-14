@@ -1,0 +1,38 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cheap repository rules first. In CI only the built-in scrub patterns run,
+      # because the owner's local pattern file does not exist on the runner.
+      - name: Secret scrub
+        run: scripts/scrub.sh
+      - name: GPUI boundary
+        run: scripts/gpui-boundary.sh
+      - name: Script tests
+        run: scripts/tests/run.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # GPUI is built with the `runtime_shaders` feature, so the Metal shaders compile
+      # at runtime and the runner should need only the Command Line Tools. If the build
+      # ever asks for Xcode's Metal toolchain, that is the place to look first.
+      - name: fmt, clippy, tests
+        run: scripts/check.sh
