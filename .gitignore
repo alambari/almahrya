@@ -5,3 +5,4 @@ node_modules/
 # Repo docs for people and agents (overrides a global ignore)
 !AGENTS.md
 !CLAUDE.md
+.superpowers/
