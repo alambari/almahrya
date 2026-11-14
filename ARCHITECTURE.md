@@ -47,10 +47,11 @@ the first client; a React web app is the second, later. The design document is
 | `readpath` | `core` | Read-only query service for Postgres, ClickHouse, Elasticsearch, Redis. Reads credentials from the configured `.env`. Exposed to the agent as an MCP server. |
 | `engine` | all of the above | The running system: sessions, runs, gates, inbox, bot, git, files, PTYs, temporary grants, audit. Own tokio runtime. |
 | `api` | `engine`, `api-types` | HTTP and WebSocket server. Thin: validates, calls the engine, streams events. |
-| `daemon` | `api`, `engine` | The `almahryad` binary: config, logging, launchd integration, single-instance lock. |
+| `local` | none | Paths, token storage (Keychain, or a file for tests) and the daemon's socket location, shared by the daemon and the desktop app. |
+| `daemon` | `api`, `engine`, `local` | The `almahryad` binary: config, logging, launchd integration, single-instance lock. |
 | `client` | `api-types` | Rust client for the API (HTTP + WebSocket), used by the desktop app. |
 | `ui-kit` | GPUI | App components wrapped around GPUI and gpui-component. The only crate that depends on GPUI. Includes a component gallery used to compare before and after an upgrade. |
-| `app` | `client`, `ui-kit` | The desktop binary. No business logic and no direct GPUI imports: it renders API state with `ui-kit` components and sends commands. |
+| `app` | `client`, `ui-kit`, `local` | The desktop binary. No business logic and no direct GPUI imports: it renders API state with `ui-kit` components and sends commands. Starts `almahryad` when it is not running. |
 
 Rules:
 - `core` and `api-types` never depend on GPUI, tokio-specific IO, or network crates.

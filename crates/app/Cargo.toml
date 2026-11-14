@@ -1,12 +1,29 @@
 [package]
-name = "almahrya"
+name = "almahrya-app"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[lib]
+name = "almahrya_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "almahrya"
+path = "src/main.rs"
+
 [dependencies]
-almahrya-engine.workspace = true
+almahrya-api-types.workspace = true
+almahrya-client.workspace = true
+almahrya-local.workspace = true
 almahrya-ui-kit.workspace = true
+futures-util.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["parsing"] }
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
